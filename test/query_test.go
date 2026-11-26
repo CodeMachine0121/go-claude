@@ -168,10 +168,12 @@ func TestGivingUpStopsClaudeWhileItWorks(t *testing.T) {
 	assert.Less(t, time.Since(<-cancelled), time.Second)
 }
 
-// running reports whether a process whose whole command line is command exists.
+// running reports whether any process runs command: the command itself or
+// the shell Claude Code wraps it in. The request reaches Claude Code on
+// standard input, so no process of this test carries the command line.
 func running(t *testing.T, command string) bool {
 	t.Helper()
-	return exec.Command("pgrep", "-f", "^"+command+"$").Run() == nil
+	return exec.Command("pgrep", "-f", command).Run() == nil
 }
 
 func TestGivingUpAlsoStopsCommandsClaudeStarted(t *testing.T) {
@@ -194,7 +196,7 @@ func TestGivingUpAlsoStopsCommandsClaudeStarted(t *testing.T) {
 		})
 		done <- err
 	}()
-	t.Cleanup(func() { _ = exec.Command("pkill", "-f", "^"+command+"$").Run() })
+	t.Cleanup(func() { _ = exec.Command("pkill", "-f", command).Run() })
 	require.Eventually(t, func() bool { return running(t, command) }, 60*time.Second, 200*time.Millisecond,
 		"claude never started the command")
 
