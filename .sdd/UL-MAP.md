@@ -3,7 +3,7 @@
 **Project:** go-claude
 **Bounded Context:** Using Claude from Go programs through the locally installed Claude Code
 **Maintainer:** CodeMachine0121
-**Last Updated:** 2026-11-26
+**Last Updated:** 2026-11-26 (one-shot request added)
 
 ---
 
@@ -26,6 +26,15 @@
 | Everyday sign-in | — | default profile | The sign-in Claude Code uses when no profile is chosen. | Confirmed |
 | Subscription pass | `claude.WithOAuthToken` | OAuth token | A ready-made long-lived pass issued for a Claude subscription, for unattended use. Secret. | Confirmed |
 | Developer account key | `claude.WithAPIKey` | API key | A key of a pay-per-use developer account, for unattended use. Secret. | Confirmed |
+| One-shot request | `query.Request` | prompt | A single request handed to Claude that ends with one final reply. Must not be empty. | Confirmed |
+| Final reply | `query.ResultDto.Text` | result | The complete answer Claude gives at the end; drafts in between are never returned. | Confirmed |
+| Round | `query.ResultDto.Turns` | turn | One step of Claude's work on a request (think, act with a tool, look at the outcome). | Confirmed |
+| Round limit | `query.Request.MaxTurns` | max turns | The most rounds Claude may take; 0 means no limit (Claude Code's usual behaviour); negative is refused. | Confirmed |
+| Conversation reference | `query.ResultDto.SessionID` / `query.Request.SessionID` | session ID | Identifies a conversation so a later one-shot request can continue it. | Confirmed |
+| Cost | `query.CostVo` | total cost (USD) | What Claude Code says the request cost, in US dollars, kept to the billionth of a dollar. Never a floating-point number. | Confirmed |
+| Work folder | `query.Request.WorkingDirectory` | working directory | The project folder Claude works in; must exist. | Confirmed |
+| Allowed action | `query.Request.AllowedTools` | allowed tools | A kind of action (running commands, editing files…) Claude may take without asking. | Confirmed |
+| Model | `query.Request.Model` | model | Which Claude model answers; Claude Code's choice when absent. | Confirmed |
 | Credential | `claudecode.Credential` | — | Either a subscription pass or a developer account key; at most one may be supplied. | Confirmed |
 
 ---
@@ -38,6 +47,8 @@
 | Check sign-in state | `auth.UseCase.Status` | Developer asks | Reports the sign-in state; no change | |
 | Sign in | `auth.UseCase.Login` | Developer asks on the person's behalf | Person completes sign-in themselves through Claude Code | Interactive; uses the person's terminal |
 | Sign out | `auth.UseCase.Logout` | Developer asks | Profile becomes not signed in | Already signed out is accepted quietly |
+| Send a one-shot request | `query.UseCase.Ask` | Developer asks | Claude works through rounds and returns one final reply | Final reply only |
+| Continue a conversation | `query.Request.SessionID` | Developer passes an earlier conversation reference | The new request joins that conversation | Unknown reference ⇒ "conversation not found" |
 | Give up | context cancellation | Developer cancels or a time limit passes | Operation stops promptly, reported as given up | |
 
 ---
@@ -67,3 +78,6 @@
 | Profile (Claude Code setting) | `CLAUDE_CONFIG_DIR` | Profile location | |
 | Credential (Claude Code setting) | `CLAUDE_CODE_OAUTH_TOKEN` | Subscription pass | |
 | Credential (Claude Code setting) | `ANTHROPIC_API_KEY` | Developer account key | |
+| Request outcome (Claude Code result) | `success` | Finished | Final reply available |
+| Request outcome | `error_max_turns` | Round limit reached | Stopped at the round limit before finishing |
+| Request outcome | `is_error` with explanation | Claude reported a problem | e.g. "Not logged in · Please run /login", unavailable model |
