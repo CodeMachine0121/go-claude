@@ -7,8 +7,8 @@ CLI installed on the machine — with whatever account Claude Code is signed in 
 The library never reads stored credentials and never signs in on its own: every sign-in
 goes through the Claude Code CLI.
 
-> **Status:** early development. Sign-in management and profiles are available; sending
-> prompts and multi-turn conversations are next.
+> **Status:** early development. Sign-in management, profiles and one-shot requests are
+> available; multi-turn conversations are next.
 
 ## Requirements
 
@@ -52,6 +52,38 @@ fmt.Println(status.AccountKind, status.Plan, status.ExpiresAt)
 `auth.LoginRequest{Method: auth.DeveloperAccount, Email: "dev@example.com"}` signs in with a
 pay-per-use developer account; `auth.SingleSignOn` uses your company's single sign-on.
 
+### Send a one-shot request
+
+Claude may work over several rounds — thinking, using the tools you allow, looking at the
+results — before it gives one final reply. `MaxTurns` caps the rounds (0 means no cap).
+
+```go
+result, err := client.Query().Ask(ctx, query.Request{
+	Prompt:           "Find the failing test and explain why it fails",
+	MaxTurns:         10,
+	Model:            "sonnet",
+	WorkingDirectory: "/path/to/project",
+	AllowedTools:     []string{"Read", "Bash"},
+})
+var limit *query.RoundLimitError
+switch {
+case errors.As(err, &limit):
+	// Stopped early; continue with query.Request{SessionID: limit.SessionID, ...}
+case err != nil:
+	return err // query.ErrNotSignedIn, *query.ProblemError, ...
+}
+fmt.Println(result.Text)
+fmt.Println(result.Turns, result.CostUSD, result.SessionID)
+```
+
+> [!WARNING]
+> `AllowedTools` lets Claude act inside `WorkingDirectory` without asking — running
+> commands, editing files. Allow only what the task needs.
+
+The cost is an exact decimal string (`"0.00559738"`) plus `CostNanodollars` for summing;
+it is never a floating-point number. Pass `result.SessionID` as `Request.SessionID` to
+continue the conversation in a later request.
+
 ### Separate profiles
 
 Each profile keeps its own sign-in and conversation history, separate from the everyday
@@ -85,7 +117,7 @@ client, err := claude.New(ctx, claude.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY"))
 Every operation takes a `context.Context`; cancelling it stops Claude Code promptly and the
 error matches `context.Canceled` / `context.DeadlineExceeded`.
 
-A runnable example lives in [`examples/signin`](examples/signin).
+Runnable examples live in [`examples/signin`](examples/signin) and [`examples/ask`](examples/ask).
 
 ## Using a Claude subscription: what is allowed
 

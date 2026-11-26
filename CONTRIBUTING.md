@@ -16,6 +16,16 @@ gofmt -l . && go vet ./... && go test ./...
 go test -tags integration ./test/...
 ```
 
+- Integration tests that send requests to Claude use your Claude usage, so they also need
+  an explicit opt-in. They use the fastest model with tiny requests:
+
+```bash
+GO_CLAUDE_LIVE_TESTS=1 go test -tags integration ./test/...
+```
+
+- Tests never sign out of your everyday sign-in: sign-outs only run against fresh,
+  isolated profiles after proving the profile is signed out.
+
 ## Commit messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/), in English:
