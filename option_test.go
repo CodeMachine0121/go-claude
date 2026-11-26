@@ -38,7 +38,9 @@ func TestWithProfile_UnresolvableRelativeDirectoryIsRefused(t *testing.T) {
 	require.NoError(t, os.Chdir(removed))
 	t.Cleanup(func() { _ = os.Chdir(previous) })
 	t.Setenv("PWD", "")
-	require.NoError(t, os.Remove(removed))
+	if err := os.Remove(removed); err != nil {
+		t.Skipf("this platform cannot remove the working directory: %v", err)
+	}
 	if _, err := os.Getwd(); err == nil {
 		t.Skip("this platform still resolves a removed working directory")
 	}

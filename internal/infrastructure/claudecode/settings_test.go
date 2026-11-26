@@ -3,6 +3,7 @@ package claudecode
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,7 +68,11 @@ func TestSettings_Environment(t *testing.T) {
 
 func TestSettings_ExecutablePath(t *testing.T) {
 	directory := t.TempDir()
-	existing := filepath.Join(directory, "claude")
+	name := "claude"
+	if runtime.GOOS == "windows" {
+		name = "claude.exe"
+	}
+	existing := filepath.Join(directory, name)
 	require.NoError(t, os.WriteFile(existing, nil, 0o755))
 
 	t.Run("a chosen executable that exists is used as-is", func(t *testing.T) {
