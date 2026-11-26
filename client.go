@@ -6,12 +6,14 @@ import (
 	"github.com/CodeMachine0121/go-claude/auth"
 	"github.com/CodeMachine0121/go-claude/installation"
 	"github.com/CodeMachine0121/go-claude/internal/infrastructure/claudecode"
+	"github.com/CodeMachine0121/go-claude/query"
 )
 
 // Client is the entry point to the library. It is safe for concurrent use.
 type Client struct {
 	installation installation.InstallationDto
 	auth         *auth.UseCase
+	query        *query.UseCase
 }
 
 // New checks the options, finds Claude Code and verifies it is at least
@@ -29,7 +31,11 @@ func New(ctx context.Context, options ...Option) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{installation: verified, auth: auth.NewUseCase(proxy)}, nil
+	return &Client{
+		installation: verified,
+		auth:         auth.NewUseCase(proxy),
+		query:        query.NewUseCase(proxy),
+	}, nil
 }
 
 // Installation describes the Claude Code CLI in use.
@@ -40,4 +46,9 @@ func (c *Client) Installation() installation.InstallationDto {
 // Auth reads, starts and ends the Claude Code sign-in.
 func (c *Client) Auth() *auth.UseCase {
 	return c.auth
+}
+
+// Query sends one-shot requests and returns Claude's final reply.
+func (c *Client) Query() *query.UseCase {
+	return c.query
 }
