@@ -5,7 +5,10 @@ package test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	claude "github.com/CodeMachine0121/go-claude"
+	"github.com/CodeMachine0121/go-claude/installation"
 	"github.com/CodeMachine0121/go-claude/query"
 )
 
@@ -152,8 +156,8 @@ func TestGivingUpStopsClaudeWhileItWorks(t *testing.T) {
 	requireLiveTests(t)
 	client := everydayClient(t, contextFor(t, 10*time.Second))
 	ctx, cancel := context.WithCancel(context.Background())
-	var cancelledAt time.Time
-	time.AfterFunc(1500*time.Millisecond, func() { cancelledAt = time.Now(); cancel() })
+	cancelled := make(chan time.Time, 1)
+	time.AfterFunc(1500*time.Millisecond, func() { cancelled <- time.Now(); cancel() })
 
 	_, err := client.Query().Ask(ctx, query.Request{
 		Prompt: "Write a 2000-word essay about the history of the printing press.", Model: fastestModel,
@@ -161,5 +165,69 @@ func TestGivingUpStopsClaudeWhileItWorks(t *testing.T) {
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
-	assert.Less(t, time.Since(cancelledAt), time.Second)
+	assert.Less(t, time.Since(<-cancelled), time.Second)
+}
+
+// running reports whether a process whose whole command line is command exists.
+func running(t *testing.T, command string) bool {
+	t.Helper()
+	return exec.Command("pgrep", "-f", "^"+command+"$").Run() == nil
+}
+
+func TestGivingUpAlsoStopsCommandsClaudeStarted(t *testing.T) {
+	requireLiveTests(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("commands Claude starts are stopped together only where process groups exist")
+	}
+	if _, err := exec.LookPath("pgrep"); err != nil {
+		t.Skip("pgrep is not available")
+	}
+	const command = "sleep 47.31"
+	client := everydayClient(t, contextFor(t, 10*time.Second))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Query().Ask(ctx, query.Request{
+			Prompt:   "Use the Bash tool to run exactly this command and wait for it: " + command,
+			MaxTurns: 3, Model: fastestModel, AllowedTools: []string{"Bash"}, WorkingDirectory: t.TempDir(),
+		})
+		done <- err
+	}()
+	t.Cleanup(func() { _ = exec.Command("pkill", "-f", "^"+command+"$").Run() })
+	require.Eventually(t, func() bool { return running(t, command) }, 60*time.Second, 200*time.Millisecond,
+		"claude never started the command")
+
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
+	assert.Eventually(t, func() bool { return !running(t, command) }, time.Second, 50*time.Millisecond,
+		"the command claude started kept running after giving up")
+}
+
+func TestARequestWhenClaudeCodeDisappearedIsRefused(t *testing.T) {
+	path := requireClaudeCode(t)
+	ctx := contextFor(t, 10*time.Second)
+	chosen := filepath.Join(t.TempDir(), "claude")
+	if err := os.Symlink(path, chosen); err != nil {
+		t.Skipf("cannot create a second copy: %v", err)
+	}
+	client, err := claude.New(ctx, claude.WithCLIPath(chosen))
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(chosen))
+
+	_, err = client.Query().Ask(ctx, query.Request{Prompt: "hi", WorkingDirectory: t.TempDir()})
+
+	require.ErrorIs(t, err, installation.ErrNotInstalled)
+}
+
+func TestAVeryLongRequestReachesClaude(t *testing.T) {
+	ctx := contextFor(t, time.Minute)
+	client := everydayClient(t, ctx)
+	longRequest := strings.Repeat("All work and no play. ", 20_000) // about 440 KB, past any command-line limit
+
+	_, err := client.Query().Ask(ctx, query.Request{Prompt: longRequest, Model: "no-such-model", WorkingDirectory: t.TempDir()})
+
+	require.ErrorIs(t, err, query.ErrClaudeReportedProblem, "the request should reach Claude, which then rejects the model")
+	assert.Contains(t, err.Error(), "no-such-model")
 }

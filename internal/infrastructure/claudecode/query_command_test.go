@@ -20,6 +20,11 @@ func TestQueryCommand_Arguments(t *testing.T) {
 			expected: []string{"--print", "--output-format", "json"},
 		},
 		{
+			name:     "a round limit of zero tells claude code no limit",
+			query:    query.QueryVo{Prompt: "hi", MaxTurns: 0},
+			expected: []string{"--print", "--output-format", "json"},
+		},
+		{
 			name:     "a round limit is passed on",
 			query:    query.QueryVo{Prompt: "hi", MaxTurns: 5},
 			expected: []string{"--print", "--output-format", "json", "--max-turns", "5"},

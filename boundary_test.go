@@ -65,6 +65,14 @@ func TestProductionCodeNeverTalksToTheNetwork(t *testing.T) {
 	}
 }
 
+func TestProductionCodeNeverHandlesMoneyAsFloatingPoint(t *testing.T) {
+	for _, file := range productionFiles(t) {
+		source, err := os.ReadFile(file)
+		require.NoError(t, err)
+		assert.NotRegexpf(t, `\bfloat(32|64)\b|ParseFloat`, string(source), "%s uses floating point", file)
+	}
+}
+
 func TestProductionCodeNeverReadsStoredSignInSecrets(t *testing.T) {
 	forbidden := []string{".credentials.json", "find-generic-password", "Claude Code-credentials", "keychain"}
 	for _, file := range productionFiles(t) {
