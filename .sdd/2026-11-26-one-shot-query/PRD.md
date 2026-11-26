@@ -201,6 +201,8 @@ flowchart TD
   - The request is handed to Claude Code in a way that works for very long requests on every platform (not as a command-line word).
   - "Not signed in" is recognised from Claude's explanation ("Not logged in"); every other problem keeps Claude's explanation.
   - Handed-over secrets are hidden in every text that reaches the developer.
+  - Giving up also stops the commands Claude started while working (where the platform allows).
+  - Claude Code may write very small costs in exponent form (such as 1.5e-7); they are read exactly. Amounts too large to be real costs are refused.
 - **Edge Cases:**
   - Claude Code disappears before the request → "Claude Code is not installed".
   - Claude Code's answer cannot be understood → "could not read the reply", including what it said (secrets hidden).
