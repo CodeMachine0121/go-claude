@@ -17,7 +17,7 @@ import (
 	"github.com/CodeMachine0121/go-claude/installation"
 )
 
-const waitAfterCancel = time.Second
+const waitAfterCancel = 500 * time.Millisecond
 
 // ClaudeCodeProxy runs Claude Code with the chosen executable, profile and credential.
 // It is safe for concurrent use.
@@ -30,12 +30,18 @@ func NewClaudeCodeProxy(settings Settings) *ClaudeCodeProxy {
 	return &ClaudeCodeProxy{settings: settings}
 }
 
-// execution is a Claude Code run that started and ended on its own.
+// execution is a Claude Code run that started and ended on its own. Its texts
+// already have every supplied secret hidden.
 type execution struct {
-	path      string
-	output    []byte
-	said      string
-	succeeded bool
+	path        string
+	output      string
+	diagnostics string
+	succeeded   bool
+}
+
+// said is everything Claude Code printed.
+func (e execution) said() string {
+	return strings.TrimSpace(e.output + "\n" + e.diagnostics)
 }
 
 // Inspect reports where Claude Code is and which release it is.
@@ -45,9 +51,9 @@ func (p *ClaudeCodeProxy) Inspect(ctx context.Context) (installation.Installatio
 		return installation.InstallationVo{}, err
 	}
 	if !run.succeeded {
-		return installation.InstallationVo{}, fmt.Errorf("claude code failed: %s", run.said)
+		return installation.InstallationVo{}, fmt.Errorf("%w: claude code failed: %s", installation.ErrUnrecognizedVersion, run.said())
 	}
-	version, err := installation.NewVersionVo(string(run.output))
+	version, err := installation.NewVersionVo(run.output)
 	if err != nil {
 		return installation.InstallationVo{}, err
 	}
@@ -62,9 +68,10 @@ func (p *ClaudeCodeProxy) ReadStatus(ctx context.Context) (auth.StatusVo, error)
 	if err != nil {
 		return auth.StatusVo{}, err
 	}
-	payload, err := newStatusPayload(run.output)
+	payload, err := newStatusPayload([]byte(run.output))
 	if err != nil {
-		return auth.StatusVo{}, &auth.UnreadableStatusError{Output: run.said}
+		said := strings.TrimSpace(statusAnswer{text: run.output}.WithoutIdentity() + "\n" + run.diagnostics)
+		return auth.StatusVo{}, &auth.UnreadableStatusError{Output: said}
 	}
 	return payload.ToVo(), nil
 }
@@ -88,7 +95,7 @@ func (p *ClaudeCodeProxy) SignOut(ctx context.Context) error {
 		return err
 	}
 	if !run.succeeded {
-		return fmt.Errorf("%w: claude code said %q", auth.ErrSignOutFailed, run.said)
+		return fmt.Errorf("%w: claude code said %q", auth.ErrSignOutFailed, run.said())
 	}
 	return nil
 }
@@ -127,11 +134,10 @@ func (p *ClaudeCodeProxy) execute(ctx context.Context, terminal bool, arguments 
 		}
 		return execution{}, errors.New("claude code could not start: " + reason)
 	}
-	said := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
 	return execution{
-		path:      path,
-		output:    stdout.Bytes(),
-		said:      p.settings.Credential.Redact(said),
-		succeeded: runErr == nil,
+		path:        path,
+		output:      p.settings.Credential.Redact(stdout.String()),
+		diagnostics: p.settings.Credential.Redact(stderr.String()),
+		succeeded:   runErr == nil,
 	}, nil
 }
