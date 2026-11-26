@@ -35,15 +35,8 @@ func everydayClient(t *testing.T, ctx context.Context) *claude.Client {
 	return client
 }
 
-func contextFor(t *testing.T, timeout time.Duration) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	t.Cleanup(cancel)
-	return ctx
-}
-
 func TestAMissingWorkFolderIsRefused(t *testing.T) {
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	client := everydayClient(t, ctx)
 
 	_, err := client.Query().Ask(ctx, query.Request{
@@ -157,7 +150,7 @@ func TestALaterRequestContinuesTheConversation(t *testing.T) {
 
 func TestGivingUpStopsClaudeWhileItWorks(t *testing.T) {
 	requireLiveTests(t)
-	client := everydayClient(t, context10s(t))
+	client := everydayClient(t, contextFor(t, 10*time.Second))
 	ctx, cancel := context.WithCancel(context.Background())
 	var cancelledAt time.Time
 	time.AfterFunc(1500*time.Millisecond, func() { cancelledAt = time.Now(); cancel() })

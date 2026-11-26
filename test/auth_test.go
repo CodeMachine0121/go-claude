@@ -35,9 +35,10 @@ func requireClaudeCode(t *testing.T) string {
 	return path
 }
 
-func context10s(t *testing.T) context.Context {
+// contextFor gives up on the test's Claude Code work after timeout.
+func contextFor(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	t.Cleanup(cancel)
 	return ctx
 }
@@ -84,7 +85,7 @@ func requireEverydaySignedIn(t *testing.T, ctx context.Context) auth.StatusDto {
 
 func TestClaudeCodeIsFoundAutomatically(t *testing.T) {
 	path := requireClaudeCode(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	printed, err := exec.CommandContext(ctx, path, "--version").Output()
 	require.NoError(t, err)
 	expected := strings.Fields(string(printed))[0]
@@ -103,7 +104,7 @@ func TestTheChosenCopyIsUsed(t *testing.T) {
 		t.Skipf("cannot create a second copy: %v", err)
 	}
 
-	client, err := claude.New(context10s(t), claude.WithCLIPath(chosen))
+	client, err := claude.New(contextFor(t, 10*time.Second), claude.WithCLIPath(chosen))
 
 	require.NoError(t, err)
 	assert.Equal(t, chosen, client.Installation().Path)
@@ -112,7 +113,7 @@ func TestTheChosenCopyIsUsed(t *testing.T) {
 func TestMissingClaudeCodeIsRefused(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	client, err := claude.New(context10s(t))
+	client, err := claude.New(contextFor(t, 10*time.Second))
 
 	require.ErrorIs(t, err, installation.ErrNotInstalled)
 	assert.Contains(t, err.Error(), "npm install -g @anthropic-ai/claude-code")
@@ -122,7 +123,7 @@ func TestMissingClaudeCodeIsRefused(t *testing.T) {
 func TestAChosenCopyThatDoesNotExistIsRefused(t *testing.T) {
 	requireClaudeCode(t)
 
-	client, err := claude.New(context10s(t), claude.WithCLIPath(filepath.Join(t.TempDir(), "claude")))
+	client, err := claude.New(contextFor(t, 10*time.Second), claude.WithCLIPath(filepath.Join(t.TempDir(), "claude")))
 
 	require.ErrorIs(t, err, installation.ErrNotInstalled)
 	assert.Nil(t, client)
@@ -130,7 +131,7 @@ func TestAChosenCopyThatDoesNotExistIsRefused(t *testing.T) {
 
 func TestClaudeCodeDisappearingAfterPreparationIsReported(t *testing.T) {
 	path := requireClaudeCode(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	chosen := filepath.Join(t.TempDir(), "claude")
 	if err := os.Symlink(path, chosen); err != nil {
 		t.Skipf("cannot create a second copy: %v", err)
@@ -150,7 +151,7 @@ func TestClaudeCodeDisappearingAfterPreparationIsReported(t *testing.T) {
 func TestANewProfileStartsSignedOut(t *testing.T) {
 	requireClaudeCode(t)
 	withoutInheritedCredentials(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	client, err := claude.New(ctx, claude.WithProfile(t.TempDir()))
 	require.NoError(t, err)
 
@@ -164,7 +165,7 @@ func TestANewProfileStartsSignedOut(t *testing.T) {
 func TestNoProfileMeansTheEverydaySignIn(t *testing.T) {
 	path := requireClaudeCode(t)
 	withoutInheritedCredentials(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	everyday := requireEverydaySignedIn(t, ctx)
 	reported, _ := exec.CommandContext(ctx, path, "auth", "status").Output()
 
@@ -175,7 +176,7 @@ func TestNoProfileMeansTheEverydaySignIn(t *testing.T) {
 func TestAProfileIsSeparateFromTheEverydaySignIn(t *testing.T) {
 	requireClaudeCode(t)
 	withoutInheritedCredentials(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	requireEverydaySignedIn(t, ctx)
 	profile, err := claude.New(ctx, claude.WithProfile(t.TempDir()))
 	require.NoError(t, err)
@@ -190,7 +191,7 @@ func TestAProfileIsSeparateFromTheEverydaySignIn(t *testing.T) {
 func TestSigningOutOfAProfileLeavesTheEverydaySignInAlone(t *testing.T) {
 	requireClaudeCode(t)
 	withoutInheritedCredentials(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	requireEverydaySignedIn(t, ctx)
 	profile := signedOutProfile(t, ctx)
 
@@ -206,7 +207,7 @@ func TestSigningOutOfAProfileLeavesTheEverydaySignInAlone(t *testing.T) {
 func TestSignOutWhenAlreadySignedOutSucceeds(t *testing.T) {
 	requireClaudeCode(t)
 	withoutInheritedCredentials(t)
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	profile := signedOutProfile(t, ctx)
 
 	err := profile.Auth().Logout(ctx)
@@ -221,7 +222,7 @@ func TestARelativeProfileDirectoryIsUsed(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(t.TempDir()))
 	t.Cleanup(func() { _ = os.Chdir(previous) })
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	profile, err := claude.New(ctx, claude.WithProfile("profile"))
 	require.NoError(t, err)
 
@@ -246,7 +247,7 @@ func TestSuppliedCredentialsAreUsedWithoutSigningIn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			requireClaudeCode(t)
 			withoutInheritedCredentials(t)
-			ctx := context10s(t)
+			ctx := contextFor(t, 10*time.Second)
 			client, err := claude.New(ctx, claude.WithProfile(t.TempDir()), tt.option)
 			require.NoError(t, err)
 
@@ -262,7 +263,7 @@ func TestSuppliedCredentialsAreUsedWithoutSigningIn(t *testing.T) {
 func TestASuppliedCredentialReplacesAnInheritedOne(t *testing.T) {
 	requireClaudeCode(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-api03-inherited")
-	ctx := context10s(t)
+	ctx := contextFor(t, 10*time.Second)
 	client, err := claude.New(ctx, claude.WithProfile(t.TempDir()), claude.WithOAuthToken("sk-ant-oat01-not-a-real-pass"))
 	require.NoError(t, err)
 
@@ -274,7 +275,7 @@ func TestASuppliedCredentialReplacesAnInheritedOne(t *testing.T) {
 
 func TestGivingUpStopsTheCheck(t *testing.T) {
 	requireClaudeCode(t)
-	client, err := claude.New(context10s(t), claude.WithProfile(t.TempDir()))
+	client, err := claude.New(contextFor(t, 10*time.Second), claude.WithProfile(t.TempDir()))
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -288,7 +289,7 @@ func TestGivingUpStopsTheCheck(t *testing.T) {
 
 func TestGivingUpStopsTheSignIn(t *testing.T) {
 	requireClaudeCode(t)
-	client, err := claude.New(context10s(t), claude.WithProfile(t.TempDir()))
+	client, err := claude.New(contextFor(t, 10*time.Second), claude.WithProfile(t.TempDir()))
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -300,7 +301,7 @@ func TestGivingUpStopsTheSignIn(t *testing.T) {
 
 func TestGivingUpStopsTheSignOut(t *testing.T) {
 	requireClaudeCode(t)
-	client := signedOutProfile(t, context10s(t))
+	client := signedOutProfile(t, contextFor(t, 10*time.Second))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
