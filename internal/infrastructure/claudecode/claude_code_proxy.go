@@ -105,16 +105,15 @@ func (p *ClaudeCodeProxy) SignOut(ctx context.Context) error {
 // so requests of any length work on every platform. The final answer decides
 // the outcome, whatever Claude Code's exit status.
 func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query.OutcomeVo, error) {
-	if request.WorkingDirectory != "" {
-		if info, err := os.Stat(request.WorkingDirectory); err != nil || !info.IsDir() {
-			return query.OutcomeVo{}, fmt.Errorf("%w: %q", query.ErrWorkFolderMissing, request.WorkingDirectory)
-		}
-	}
-	run, err := p.execute(ctx, invocation{
+	ask := invocation{
 		arguments: queryCommand{query: request}.arguments(),
 		input:     request.Prompt,
 		directory: request.WorkingDirectory,
-	})
+	}
+	if err := ask.checkDirectory(); err != nil {
+		return query.OutcomeVo{}, err
+	}
+	run, err := p.execute(ctx, ask)
 	if err != nil {
 		return query.OutcomeVo{}, err
 	}
@@ -128,6 +127,27 @@ func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query
 	return payload.ToVo(p.settings.Credential), nil
 }
 
+// Open starts a conversation: one Claude Code process that answers messages
+// until it is closed. The conversation outlives ctx, which only bounds starting.
+func (p *ClaudeCodeProxy) Open(ctx context.Context, request query.QueryVo) (query.IConversationLink, error) {
+	open := invocation{arguments: conversationCommand{query: request}.arguments(), directory: request.WorkingDirectory}
+	if err := open.checkDirectory(); err != nil {
+		return nil, err
+	}
+	lifetime, stop := context.WithCancel(context.WithoutCancel(ctx))
+	command, err := p.command(lifetime, open)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	link, err := newConversationLink(command, stop, p.settings.Credential)
+	if err != nil {
+		stop()
+		return nil, p.startFailure(err)
+	}
+	return link, nil
+}
+
 // invocation is one way of running Claude Code.
 type invocation struct {
 	arguments []string
@@ -139,20 +159,26 @@ type invocation struct {
 	directory string
 }
 
+// checkDirectory refuses a work folder that does not exist before anything runs.
+func (run invocation) checkDirectory() error {
+	if run.directory == "" {
+		return nil
+	}
+	if info, err := os.Stat(run.directory); err != nil || !info.IsDir() {
+		return fmt.Errorf("%w: %q", query.ErrWorkFolderMissing, run.directory)
+	}
+	return nil
+}
+
 // execute runs Claude Code once. It fails only when the run could not happen or
 // was given up: installation.ErrNotInstalled, the context's error, or a start
 // failure. A run that ended with a failure status is reported through
 // execution.succeeded. Supplied secrets are hidden from every text it returns.
 func (p *ClaudeCodeProxy) execute(ctx context.Context, run invocation) (execution, error) {
-	path, err := p.settings.executablePath()
+	command, err := p.command(ctx, run)
 	if err != nil {
 		return execution{}, err
 	}
-	command := exec.CommandContext(ctx, path, run.arguments...)
-	command.Env = p.settings.environment(os.Environ())
-	command.Dir = run.directory
-	command.WaitDelay = waitAfterCancel
-	run.stopTogether(command)
 	var stdout, stderr bytes.Buffer
 	if run.terminal {
 		command.Stdin, command.Stdout, command.Stderr = p.settings.Stdin, p.settings.Stdout, p.settings.Stderr
@@ -167,16 +193,36 @@ func (p *ClaudeCodeProxy) execute(ctx context.Context, run invocation) (executio
 	}
 	var exitErr *exec.ExitError
 	if runErr != nil && !errors.As(runErr, &exitErr) {
-		reason := p.settings.Credential.Redact(runErr.Error())
-		if errors.Is(runErr, fs.ErrNotExist) {
-			return execution{}, fmt.Errorf("%w: %s", installation.ErrNotInstalled, reason)
-		}
-		return execution{}, errors.New("claude code could not start: " + reason)
+		return execution{}, p.startFailure(runErr)
 	}
 	return execution{
-		path:        path,
+		path:        command.Path,
 		output:      p.settings.Credential.Redact(stdout.String()),
 		diagnostics: p.settings.Credential.Redact(stderr.String()),
 		succeeded:   runErr == nil,
 	}, nil
+}
+
+// command prepares a Claude Code invocation with the chosen executable,
+// environment, work folder and cancellation.
+func (p *ClaudeCodeProxy) command(ctx context.Context, run invocation) (*exec.Cmd, error) {
+	path, err := p.settings.executablePath()
+	if err != nil {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, path, run.arguments...)
+	command.Env = p.settings.environment(os.Environ())
+	command.Dir = run.directory
+	command.WaitDelay = waitAfterCancel
+	run.stopTogether(command)
+	return command, nil
+}
+
+// startFailure translates a failure to start Claude Code, with secrets hidden.
+func (p *ClaudeCodeProxy) startFailure(err error) error {
+	reason := p.settings.Credential.Redact(err.Error())
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: %s", installation.ErrNotInstalled, reason)
+	}
+	return errors.New("claude code could not start: " + reason)
 }

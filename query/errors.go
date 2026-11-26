@@ -33,6 +33,20 @@ var ErrRoundLimitReached = errors.New("round limit reached")
 // unavailable model. The concrete error is a *ProblemError.
 var ErrClaudeReportedProblem = errors.New("claude reported a problem")
 
+// ErrInterrupted reports a reply abandoned by Conversation.Interrupt.
+var ErrInterrupted = errors.New("interrupted")
+
+// ErrStillAnswering reports a message sent while Claude is still answering the
+// previous one in the same conversation.
+var ErrStillAnswering = errors.New("still answering")
+
+// ErrConversationClosed reports a message sent after Conversation.Close.
+var ErrConversationClosed = errors.New("the conversation is closed")
+
+// ErrConversationEnded reports that Claude Code stopped on its own; the
+// conversation cannot be used any more.
+var ErrConversationEnded = errors.New("the conversation ended")
+
 // ErrUnreadableReply reports an answer from Claude Code the library cannot
 // understand. The concrete error is an *UnreadableReplyError.
 var ErrUnreadableReply = errors.New("could not read the reply")

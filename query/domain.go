@@ -56,6 +56,8 @@ func (d OutcomeDomain) ToDto() (ResultDto, error) {
 		}
 	case OutcomeNotSignedIn:
 		return ResultDto{}, ErrNotSignedIn
+	case OutcomeInterrupted:
+		return ResultDto{}, ErrInterrupted
 	default:
 		return ResultDto{}, &ProblemError{Explanation: d.outcome.Explanation}
 	}

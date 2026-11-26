@@ -80,6 +80,15 @@ func (c CostVo) String() string {
 	return strconv.FormatInt(whole, 10) + "." + fraction
 }
 
+// Since is the increase of a running total since previous. A total that went
+// down means counting restarted, so the whole total is the increase.
+func (c CostVo) Since(previous CostVo) CostVo {
+	if c.nanodollars < previous.nanodollars {
+		return c
+	}
+	return CostVo{nanodollars: c.nanodollars - previous.nanodollars}
+}
+
 // QueryVo is a validated request handed to the infrastructure.
 type QueryVo struct {
 	Prompt           string
@@ -103,6 +112,8 @@ const (
 	OutcomeNotSignedIn
 	// OutcomeProblem means Claude reported a problem with an explanation.
 	OutcomeProblem
+	// OutcomeInterrupted means the reply was abandoned by an interrupt.
+	OutcomeInterrupted
 )
 
 // OutcomeVo is Claude Code's final answer as normalized by the infrastructure.

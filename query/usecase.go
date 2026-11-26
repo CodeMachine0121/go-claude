@@ -26,3 +26,17 @@ func (u *UseCase) Ask(ctx context.Context, request Request) (ResultDto, error) {
 	}
 	return outcome.ToDomain().ToDto()
 }
+
+// Open starts a conversation in which several messages can be sent. Close it
+// when done. It is refused with ErrNegativeMaxTurns or ErrWorkFolderMissing.
+func (u *UseCase) Open(ctx context.Context, request ConversationRequest) (*Conversation, error) {
+	conversation, err := NewConversationDomain(request)
+	if err != nil {
+		return nil, err
+	}
+	link, err := u.proxy.Open(ctx, conversation.ToVo())
+	if err != nil {
+		return nil, err
+	}
+	return &Conversation{link: link, sessionID: request.SessionID}, nil
+}

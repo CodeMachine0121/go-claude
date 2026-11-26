@@ -22,6 +22,9 @@ const (
 	recordedUnavailableModel = `{"type":"result","subtype":"success","is_error":true,"num_turns":1,
 "result":"There's an issue with the selected model (no-such-model). It may not exist or you may not have access to it. Run --model to pick a different model.",
 "session_id":"d0271584-ba37-4ed0-9c5f-a5f5f7647f0e","total_cost_usd":0,"terminal_reason":"api_error","api_error_status":404}`
+	recordedInterrupted = `{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":2,
+"total_cost_usd":0.007689830000000001,"session_id":"5794e35b-050e-4c5d-b18f-9958a3886063",
+"terminal_reason":"aborted_streaming","errors":["[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"]}`
 	recordedQueryNotSignedIn = `{"type":"result","subtype":"success","is_error":true,"num_turns":1,
 "result":"Not logged in · Please run /login","session_id":"512b579c-92b7-467f-b2e6-f095d4742ad8",
 "total_cost_usd":0,"terminal_reason":"api_error","api_error_status":null}`
@@ -70,6 +73,15 @@ func TestNewResultPayload_ToVo(t *testing.T) {
 				Text: "Not logged in · Please run /login", Explanation: "Not logged in · Please run /login",
 			},
 			cost: "0",
+		},
+		{
+			name:   "an interrupted reply",
+			answer: recordedInterrupted,
+			expected: query.OutcomeVo{
+				Kind: query.OutcomeInterrupted, Turns: 2, SessionID: "5794e35b-050e-4c5d-b18f-9958a3886063",
+				Explanation: "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+			},
+			cost: "0.00768983",
 		},
 		{
 			name:     "an error outcome without the error flag is still a problem",

@@ -47,3 +47,31 @@ func TestQueryCommand_Arguments(t *testing.T) {
 		})
 	}
 }
+
+func TestConversationCommand_Arguments(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    query.QueryVo
+		expected []string
+	}{
+		{
+			name:     "messages and answers are exchanged as json lines",
+			query:    query.QueryVo{},
+			expected: []string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"},
+		},
+		{
+			name:  "the same choices as one-shot requests are passed on",
+			query: query.QueryVo{MaxTurns: 4, Model: "haiku", AllowedTools: []string{"Read"}, SessionID: "session-1"},
+			expected: []string{
+				"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+				"--max-turns", "4", "--model", "haiku", "--allowedTools", "Read", "--resume", "session-1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, conversationCommand{query: tt.query}.arguments())
+		})
+	}
+}

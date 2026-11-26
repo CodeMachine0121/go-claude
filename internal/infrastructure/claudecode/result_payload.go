@@ -18,6 +18,7 @@ type resultPayload struct {
 	NumberOfTurns int         `json:"num_turns"`
 	SessionID     string      `json:"session_id"`
 	TotalCostUSD  json.Number `json:"total_cost_usd"`
+	Ending        string      `json:"terminal_reason"`
 
 	cost query.CostVo
 }
@@ -50,6 +51,8 @@ func (p resultPayload) ToVo(credential Credential) query.OutcomeVo {
 	switch {
 	case p.Subtype == "error_max_turns":
 		kind = query.OutcomeRoundLimitReached
+	case p.Ending == "aborted_streaming":
+		kind = query.OutcomeInterrupted
 	case p.IsError && strings.Contains(explanation, "Not logged in"):
 		kind = query.OutcomeNotSignedIn
 	case p.IsError || strings.HasPrefix(p.Subtype, "error"):
