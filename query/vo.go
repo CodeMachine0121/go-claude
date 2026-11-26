@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -13,19 +14,53 @@ type CostVo struct {
 	nanodollars int64
 }
 
+// maximumExponent bounds exponent notation: larger amounts are not real costs,
+// and the bound keeps a hostile exponent from allocating a huge digit string.
+// Smaller amounts are far below a billionth of a dollar and read as zero.
+const maximumExponent = 30
+
 // NewCostVo reads a non-negative decimal amount of dollars, such as
-// "0.0055135800000000006". Digits beyond the billionth are dropped, not rounded.
+// "0.0055135800000000006" or, as Claude Code writes very small amounts, "1.5e-7".
+// Digits beyond the billionth are dropped, not rounded. The amount is never
+// handled as a floating-point number.
 func NewCostVo(text string) (CostVo, error) {
-	whole, fraction, _ := strings.Cut(strings.TrimSpace(text), ".")
+	invalid := fmt.Errorf("%w: %q", ErrInvalidCost, text)
+	mantissa, exponentText, hasExponent := strings.Cut(strings.ToLower(strings.TrimSpace(text)), "e")
+	exponent := 0
+	if hasExponent {
+		parsed, err := strconv.Atoi(exponentText)
+		if err != nil || parsed > maximumExponent {
+			return CostVo{}, invalid
+		}
+		exponent = max(parsed, -maximumExponent)
+	}
+	whole, fraction, _ := strings.Cut(mantissa, ".")
 	notDigit := func(r rune) bool { return r < '0' || r > '9' }
 	if whole == "" || strings.IndexFunc(whole+fraction, notDigit) >= 0 {
-		return CostVo{}, fmt.Errorf("%w: %q", ErrInvalidCost, text)
+		return CostVo{}, invalid
 	}
-	fraction = (fraction + "000000000")[:9]
-	dollars, wholeErr := strconv.ParseInt(whole, 10, 64)
-	billionths, fractionErr := strconv.ParseInt(fraction, 10, 64)
-	if wholeErr != nil || fractionErr != nil || dollars > (1<<63-1)/nanodollarsPerDollar {
-		return CostVo{}, fmt.Errorf("%w: %q", ErrInvalidCost, text)
+	digits := whole + fraction
+	point := len(whole) + exponent
+	if point <= 0 {
+		digits, point = strings.Repeat("0", 1-point)+digits, 1
+	}
+	if point > len(digits) {
+		digits += strings.Repeat("0", point-len(digits))
+	}
+	dollarsText := strings.TrimLeft(digits[:point], "0")
+	billionthsText := (digits[point:] + "000000000")[:9]
+	dollars := int64(0)
+	if dollarsText != "" {
+		parsed, err := strconv.ParseInt(dollarsText, 10, 64)
+		if err != nil {
+			return CostVo{}, invalid
+		}
+		dollars = parsed
+	}
+	// The billionths are exactly nine digits, so they always parse.
+	billionths, _ := strconv.ParseInt(billionthsText, 10, 64)
+	if dollars > (math.MaxInt64-billionths)/nanodollarsPerDollar {
+		return CostVo{}, invalid
 	}
 	return CostVo{nanodollars: dollars*nanodollarsPerDollar + billionths}, nil
 }
@@ -59,8 +94,9 @@ type QueryVo struct {
 type OutcomeKind int
 
 const (
-	// OutcomeFinished means Claude gave its final reply.
-	OutcomeFinished OutcomeKind = iota
+	// OutcomeFinished means Claude gave its final reply. The zero OutcomeKind
+	// is none of the kinds below and is treated as a problem.
+	OutcomeFinished OutcomeKind = iota + 1
 	// OutcomeRoundLimitReached means Claude stopped at the round limit.
 	OutcomeRoundLimitReached
 	// OutcomeNotSignedIn means nobody is signed in.

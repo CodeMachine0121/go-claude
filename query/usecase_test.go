@@ -153,6 +153,15 @@ func TestUseCase_Ask_Failures(t *testing.T) {
 	}
 }
 
+func TestUseCase_Ask_AnOutcomeWithoutAKindIsAProblem(t *testing.T) {
+	proxy := new(mockQueryProxy)
+	proxy.On("Ask", mock.Anything, QueryVo{Prompt: "hi"}).Return(OutcomeVo{Text: "OK"}, nil)
+
+	_, err := NewUseCase(proxy).Ask(context.Background(), Request{Prompt: "hi"})
+
+	require.ErrorIs(t, err, ErrClaudeReportedProblem)
+}
+
 func TestUseCase_Ask_RoundLimitReachedStillReportsTheWork(t *testing.T) {
 	proxy := new(mockQueryProxy)
 	proxy.On("Ask", mock.Anything, QueryVo{Prompt: "Run ls", MaxTurns: 1}).Return(OutcomeVo{

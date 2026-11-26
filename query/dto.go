@@ -13,7 +13,9 @@ type Request struct {
 	// Empty means the program's current folder.
 	WorkingDirectory string
 	// AllowedTools lists the tools Claude may use without asking, such as
-	// "Read", "Edit" or "Bash". Other tools are not used.
+	// "Read", "Edit" or "Bash". Any other tool would need the person's
+	// permission, which nobody can give during a one-shot request, so Claude
+	// is refused when it tries one.
 	AllowedTools []string
 	// SessionID continues an earlier conversation; empty starts a new one.
 	SessionID string
