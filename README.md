@@ -7,8 +7,8 @@ CLI installed on the machine — with whatever account Claude Code is signed in 
 The library never reads stored credentials and never signs in on its own: every sign-in
 goes through the Claude Code CLI.
 
-> **Status:** early development. Sign-in management, profiles and one-shot requests are
-> available; multi-turn conversations are next.
+> **Status:** early development. Sign-in management, profiles, one-shot requests and
+> multi-message conversations are available.
 
 ## Requirements
 
@@ -84,6 +84,33 @@ The cost is an exact decimal string (`"0.00559738"`) plus `CostNanodollars` for 
 it is never a floating-point number. Pass `result.SessionID` as `Request.SessionID` to
 continue the conversation in a later request.
 
+### Hold a conversation
+
+A conversation keeps one Claude Code process open and answers message after message.
+Claude remembers the conversation; each reply reports what it cost on its own.
+
+```go
+conversation, err := client.Query().Open(ctx, query.ConversationRequest{Model: "sonnet"})
+if err != nil {
+	return err
+}
+defer conversation.Close() // ends Claude Code's work, including commands Claude started
+
+reply, err := conversation.Send(ctx, "Read main.go and summarise it")
+fmt.Println(reply.Text, reply.CostUSD, conversation.TotalCostUSD())
+
+// From another goroutine while Claude answers:
+_ = conversation.Interrupt(ctx) // the waiting Send fails with query.ErrInterrupted
+```
+
+One message is answered at a time (`query.ErrStillAnswering` otherwise). Cancelling a
+`Send`'s context gives up on that reply only; the conversation stays usable.
+
+> [!NOTE]
+> Requests and conversations run with the person's own Claude Code settings —
+> `CLAUDE.md` files, hooks, plugins and MCP servers apply as they do in Claude Code.
+> Use `WithProfile` for a clean, separate setup.
+
 ### Separate profiles
 
 Each profile keeps its own sign-in and conversation history, separate from the everyday
@@ -117,7 +144,8 @@ client, err := claude.New(ctx, claude.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY"))
 Every operation takes a `context.Context`; cancelling it stops Claude Code promptly and the
 error matches `context.Canceled` / `context.DeadlineExceeded`.
 
-Runnable examples live in [`examples/signin`](examples/signin) and [`examples/ask`](examples/ask).
+Runnable examples live in [`examples/signin`](examples/signin), [`examples/ask`](examples/ask)
+and [`examples/chat`](examples/chat).
 
 ## Using a Claude subscription: what is allowed
 
