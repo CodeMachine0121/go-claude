@@ -35,6 +35,10 @@
 | Work folder | `query.Request.WorkingDirectory` | working directory | The project folder Claude works in; must exist. | Confirmed |
 | Allowed action | `query.Request.AllowedTools` | allowed tools | A kind of action (running commands, editing files…) Claude may take without asking. | Confirmed |
 | Model | `query.Request.Model` | model | Which Claude model answers; Claude Code's choice when absent. | Confirmed |
+| Conversation | `query.Conversation` | conversation | An open exchange of several messages with Claude; one message answered at a time; ended by closing. | Confirmed |
+| Message | `query.Conversation.Send` argument | message | One thing the developer says in a conversation; must not be empty. | Confirmed |
+| Interrupt | `query.Conversation.Interrupt` | interrupt | Abandon the reply Claude is writing; the conversation continues. Does nothing when Claude is idle. | Confirmed |
+| Total cost | `query.Conversation.TotalCostUSD` | total cost | What the conversation has cost so far; each reply's cost is the increase it caused. | Confirmed |
 | Credential | `claudecode.Credential` | — | Either a subscription pass or a developer account key; at most one may be supplied. | Confirmed |
 
 ---
@@ -49,6 +53,10 @@
 | Sign out | `auth.UseCase.Logout` | Developer asks | Profile becomes not signed in | Already signed out is accepted quietly |
 | Send a one-shot request | `query.UseCase.Ask` | Developer asks | Claude works through rounds and returns one final reply | Final reply only |
 | Continue a conversation | `query.Request.SessionID` | Developer passes an earlier conversation reference | The new request joins that conversation | Unknown reference ⇒ "conversation not found" |
+| Open a conversation | `query.UseCase.Open` | Developer asks | Claude Code starts and waits for messages | |
+| Send a message | `query.Conversation.Send` | Developer asks | Claude answers with one final reply | Refused while still answering |
+| Interrupt | `query.Conversation.Interrupt` | Developer asks | The reply being written ends as interrupted | |
+| Close a conversation | `query.Conversation.Close` | Developer asks | Claude Code's work ends | Idempotent |
 | Give up | context cancellation | Developer cancels or a time limit passes | Operation stops promptly, reported as given up | |
 
 ---
@@ -81,3 +89,5 @@
 | Request outcome (Claude Code result) | `success` | Finished | Final reply available |
 | Request outcome | `error_max_turns` | Round limit reached | Stopped at the round limit before finishing |
 | Request outcome | `is_error` with explanation | Claude reported a problem | e.g. "Not logged in · Please run /login", unavailable model |
+| Request outcome | `error_during_execution` + `aborted_streaming` | Interrupted | The reply was abandoned by an interrupt |
+| Conversation control (Claude Code) | `control_request` / `interrupt` | Interrupt request | Asks Claude Code to abandon the reply being written |
