@@ -85,13 +85,14 @@ type Conversation struct {
 // or ErrConversationEnded; it fails like Ask does otherwise, and with
 // ErrInterrupted when Interrupt abandoned the reply.
 func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, error) {
-	if _, err := NewQueryDomain(Request{Prompt: message}); err != nil {
-		return ResultDto{}, err
-	}
 	c.mutex.Lock()
 	if refusal := c.state.refusal(); refusal != nil {
 		c.mutex.Unlock()
 		return ResultDto{}, refusal
+	}
+	if _, err := NewQueryDomain(Request{Prompt: message}); err != nil {
+		c.mutex.Unlock()
+		return ResultDto{}, err
 	}
 	c.state = conversationAnswering
 	c.mutex.Unlock()
@@ -100,6 +101,15 @@ func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, err
 
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	if outcome.Kind != 0 {
+		// An answer arrived, even for a message given up on: it was spent.
+		replyCost := outcome.Cost.Since(c.total)
+		c.total = outcome.Cost
+		if outcome.SessionID != "" {
+			c.sessionID = outcome.SessionID
+		}
+		outcome.Cost = replyCost
+	}
 	if c.state == conversationClosed {
 		return ResultDto{}, ErrConversationClosed
 	}
@@ -111,12 +121,6 @@ func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, err
 	if err != nil {
 		return ResultDto{}, err
 	}
-	replyCost := outcome.Cost.Since(c.total)
-	c.total = outcome.Cost
-	if outcome.SessionID != "" {
-		c.sessionID = outcome.SessionID
-	}
-	outcome.Cost = replyCost
 	reply, err := outcome.ToDomain().ToDto()
 	if errors.Is(err, ErrConversationNotFound) {
 		c.state = conversationEnded
@@ -126,12 +130,12 @@ func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, err
 
 // Interrupt abandons the reply Claude is writing; the waiting Send fails with
 // ErrInterrupted and the conversation stays open. When Claude is not answering,
-// it does nothing.
+// it does nothing. The next message cannot be sent before the interrupt is, so
+// an interrupt never reaches a later message.
 func (c *Conversation) Interrupt(ctx context.Context) error {
 	c.mutex.Lock()
-	answering := c.state == conversationAnswering
-	c.mutex.Unlock()
-	if !answering {
+	defer c.mutex.Unlock()
+	if c.state != conversationAnswering {
 		return nil
 	}
 	return c.link.Interrupt(ctx)

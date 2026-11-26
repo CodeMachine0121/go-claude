@@ -164,13 +164,64 @@ func TestConversation_Interrupt(t *testing.T) {
 
 	t.Run("interrupting while idle does nothing", func(t *testing.T) {
 		link := new(mockConversationLink)
+		link.On("Send", mock.Anything, "Reply with exactly: AFTER").Return(OutcomeVo{Kind: OutcomeFinished, Text: "AFTER"}, nil)
 		conversation := openConversation(t, link, ConversationRequest{})
 
 		err := conversation.Interrupt(context.Background())
 
 		require.NoError(t, err)
 		link.AssertNotCalled(t, "Interrupt", mock.Anything)
+		after, err := conversation.Send(context.Background(), "Reply with exactly: AFTER")
+		require.NoError(t, err)
+		assert.Equal(t, "AFTER", after.Text)
 	})
+}
+
+func TestConversation_AGivenUpMessageStillCountsWhatItCost(t *testing.T) {
+	link := new(mockConversationLink)
+	link.On("Send", mock.Anything, "Write an essay").
+		Return(OutcomeVo{Kind: OutcomeInterrupted, Cost: cost(t, "0.02")}, fmt.Errorf("claude code was given up: %w", context.Canceled)).Once()
+	link.On("Send", mock.Anything, "Reply with exactly: AFTER").
+		Return(OutcomeVo{Kind: OutcomeFinished, Text: "AFTER", Cost: cost(t, "0.03")}, nil).Once()
+	conversation := openConversation(t, link, ConversationRequest{})
+
+	_, err := conversation.Send(context.Background(), "Write an essay")
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, "0.02", conversation.TotalCostUSD())
+
+	after, err := conversation.Send(context.Background(), "Reply with exactly: AFTER")
+	require.NoError(t, err)
+	assert.Equal(t, "0.01", after.CostUSD)
+	assert.Equal(t, "0.03", conversation.TotalCostUSD())
+}
+
+func TestConversation_AProblemClaudeExplainsKeepsTheConversation(t *testing.T) {
+	link := new(mockConversationLink)
+	link.On("Send", mock.Anything, "hi").Return(OutcomeVo{Kind: OutcomeProblem, Explanation: "model not available"}, nil).Once()
+	link.On("Send", mock.Anything, "hello").Return(OutcomeVo{Kind: OutcomeFinished, Text: "hello"}, nil).Once()
+	conversation := openConversation(t, link, ConversationRequest{})
+
+	_, err := conversation.Send(context.Background(), "hi")
+	require.ErrorIs(t, err, ErrClaudeReportedProblem)
+	assert.Contains(t, err.Error(), "model not available")
+
+	reply, err := conversation.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", reply.Text)
+}
+
+func TestConversation_AnUnreadableReplyKeepsTheConversation(t *testing.T) {
+	link := new(mockConversationLink)
+	link.On("Send", mock.Anything, "hi").Return(OutcomeVo{}, &UnreadableReplyError{Output: "{}"}).Once()
+	link.On("Send", mock.Anything, "hello").Return(OutcomeVo{Kind: OutcomeFinished, Text: "hello"}, nil).Once()
+	conversation := openConversation(t, link, ConversationRequest{})
+
+	_, err := conversation.Send(context.Background(), "hi")
+	require.ErrorIs(t, err, ErrUnreadableReply)
+
+	reply, err := conversation.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", reply.Text)
 }
 
 func TestConversation_GivingUpKeepsTheConversation(t *testing.T) {
@@ -198,6 +249,17 @@ func TestConversation_Ending(t *testing.T) {
 		require.NoError(t, conversation.Close())
 
 		link.AssertNumberOfCalls(t, "Close", 1)
+	})
+
+	t.Run("a closed conversation says so even for an empty message", func(t *testing.T) {
+		link := new(mockConversationLink)
+		link.On("Close").Return(nil)
+		conversation := openConversation(t, link, ConversationRequest{})
+		require.NoError(t, conversation.Close())
+
+		_, err := conversation.Send(context.Background(), "  ")
+
+		require.ErrorIs(t, err, ErrConversationClosed)
 	})
 
 	t.Run("sending after closing is refused", func(t *testing.T) {
