@@ -1,0 +1,28 @@
+package query
+
+import "context"
+
+// UseCase sends one-shot requests. It is safe for concurrent use.
+type UseCase struct {
+	proxy iQueryProxy
+}
+
+// NewUseCase builds the use case on top of the infrastructure that runs Claude Code.
+func NewUseCase(proxy iQueryProxy) *UseCase {
+	return &UseCase{proxy: proxy}
+}
+
+// Ask sends the request and returns Claude's final reply. It blocks until Claude
+// finishes, the round limit stops it (*RoundLimitError), Claude reports a
+// problem (*ProblemError, ErrNotSignedIn) or ctx ends.
+func (u *UseCase) Ask(ctx context.Context, request Request) (ResultDto, error) {
+	query, err := NewQueryDomain(request)
+	if err != nil {
+		return ResultDto{}, err
+	}
+	outcome, err := u.proxy.Ask(ctx, query.ToVo())
+	if err != nil {
+		return ResultDto{}, err
+	}
+	return outcome.ToDomain().ToDto()
+}
