@@ -114,6 +114,8 @@ const (
 	OutcomeProblem
 	// OutcomeInterrupted means the reply was abandoned by an interrupt.
 	OutcomeInterrupted
+	// OutcomeConversationNotFound means the conversation to continue is unknown.
+	OutcomeConversationNotFound
 )
 
 // OutcomeVo is Claude Code's final answer as normalized by the infrastructure.

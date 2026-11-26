@@ -110,7 +110,11 @@ func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, err
 		c.sessionID = outcome.SessionID
 	}
 	outcome.Cost = replyCost
-	return outcome.ToDomain().ToDto()
+	reply, err := outcome.ToDomain().ToDto()
+	if errors.Is(err, ErrConversationNotFound) {
+		c.state = conversationEnded
+	}
+	return reply, err
 }
 
 // Interrupt abandons the reply Claude is writing; the waiting Send fails with

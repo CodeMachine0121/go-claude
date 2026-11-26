@@ -53,6 +53,8 @@ func (p resultPayload) ToVo(credential Credential) query.OutcomeVo {
 		kind = query.OutcomeRoundLimitReached
 	case p.Ending == "aborted_streaming":
 		kind = query.OutcomeInterrupted
+	case p.IsError && strings.Contains(explanation, "No conversation found"):
+		kind = query.OutcomeConversationNotFound
 	case p.IsError && strings.Contains(explanation, "Not logged in"):
 		kind = query.OutcomeNotSignedIn
 	case p.IsError || strings.HasPrefix(p.Subtype, "error"):

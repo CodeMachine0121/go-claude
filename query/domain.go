@@ -58,6 +58,8 @@ func (d OutcomeDomain) ToDto() (ResultDto, error) {
 		return ResultDto{}, ErrNotSignedIn
 	case OutcomeInterrupted:
 		return ResultDto{}, ErrInterrupted
+	case OutcomeConversationNotFound:
+		return ResultDto{}, ErrConversationNotFound
 	default:
 		return ResultDto{}, &ProblemError{Explanation: d.outcome.Explanation}
 	}

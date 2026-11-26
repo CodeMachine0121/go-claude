@@ -75,6 +75,16 @@ func TestNewResultPayload_ToVo(t *testing.T) {
 			cost: "0",
 		},
 		{
+			name: "an unknown earlier conversation",
+			answer: `{"type":"result","subtype":"success","is_error":true,"num_turns":0,"total_cost_usd":0,` +
+				`"result":"No conversation found with session ID: 00000000-0000-0000-0000-000000000000"}`,
+			expected: query.OutcomeVo{
+				Kind: query.OutcomeConversationNotFound,
+				Text: "No conversation found with session ID: 00000000-0000-0000-0000-000000000000", Explanation: "No conversation found with session ID: 00000000-0000-0000-0000-000000000000",
+			},
+			cost: "0",
+		},
+		{
 			name:   "an interrupted reply",
 			answer: recordedInterrupted,
 			expected: query.OutcomeVo{

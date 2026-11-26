@@ -247,6 +247,19 @@ func TestConversation_Ending(t *testing.T) {
 		link.AssertNumberOfCalls(t, "Send", 1)
 	})
 
+	t.Run("claude code answering that the earlier conversation is unknown ends it", func(t *testing.T) {
+		link := new(mockConversationLink)
+		link.On("Send", mock.Anything, "hi").Return(OutcomeVo{Kind: OutcomeConversationNotFound}, nil).Once()
+		conversation := openConversation(t, link, ConversationRequest{SessionID: "00000000-0000-0000-0000-000000000000"})
+
+		_, first := conversation.Send(context.Background(), "hi")
+		_, later := conversation.Send(context.Background(), "hi")
+
+		require.ErrorIs(t, first, ErrConversationNotFound)
+		assert.Equal(t, "conversation not found", first.Error())
+		require.ErrorIs(t, later, ErrConversationEnded)
+	})
+
 	t.Run("an unknown earlier conversation ends it", func(t *testing.T) {
 		link := new(mockConversationLink)
 		link.On("Send", mock.Anything, "hi").Return(OutcomeVo{}, ErrConversationNotFound).Once()
