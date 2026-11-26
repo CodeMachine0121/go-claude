@@ -53,6 +53,20 @@ const (
 	conversationEnded
 )
 
+// refusal is why a message cannot be sent in this state; nil when it can.
+func (s conversationState) refusal() error {
+	switch s {
+	case conversationAnswering:
+		return ErrStillAnswering
+	case conversationClosed:
+		return ErrConversationClosed
+	case conversationEnded:
+		return ErrConversationEnded
+	default:
+		return nil
+	}
+}
+
 // Conversation is an open conversation with Claude. One message is answered at
 // a time. It is safe for concurrent use: Interrupt and Close may be called from
 // another goroutine while Send waits. Always Close a conversation.
@@ -75,16 +89,9 @@ func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, err
 		return ResultDto{}, err
 	}
 	c.mutex.Lock()
-	switch c.state {
-	case conversationAnswering:
+	if refusal := c.state.refusal(); refusal != nil {
 		c.mutex.Unlock()
-		return ResultDto{}, ErrStillAnswering
-	case conversationClosed:
-		c.mutex.Unlock()
-		return ResultDto{}, ErrConversationClosed
-	case conversationEnded:
-		c.mutex.Unlock()
-		return ResultDto{}, ErrConversationEnded
+		return ResultDto{}, refusal
 	}
 	c.state = conversationAnswering
 	c.mutex.Unlock()
