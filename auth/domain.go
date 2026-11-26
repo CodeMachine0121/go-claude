@@ -29,8 +29,11 @@ type SignInDomain struct {
 	email  string
 }
 
-// NewSignInDomain applies the default method and refuses combined methods.
+// NewSignInDomain applies the default method and refuses combined or undefined methods.
 func NewSignInDomain(request LoginRequest) (SignInDomain, error) {
+	if request.Method&^(ClaudeSubscription|DeveloperAccount|SingleSignOn) != 0 {
+		return SignInDomain{}, ErrUnknownSignInMethod
+	}
 	if bits.OnesCount8(uint8(request.Method)) > 1 {
 		return SignInDomain{}, ErrMultipleSignInMethods
 	}

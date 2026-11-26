@@ -154,6 +154,12 @@ func TestUseCase_Login(t *testing.T) {
 			expectedText:  "choose one sign-in method",
 		},
 		{
+			name:          "an undefined method is refused before anything starts",
+			request:       LoginRequest{Method: SignInMethod(8)},
+			expectedError: ErrUnknownSignInMethod,
+			expectedText:  "unknown sign-in method",
+		},
+		{
 			name:           "giving up on the sign-in stops it",
 			request:        LoginRequest{},
 			expectedSignIn: &SignInVo{Method: ClaudeSubscription},
