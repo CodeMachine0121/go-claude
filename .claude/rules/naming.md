@@ -56,6 +56,11 @@ wrapped by an object ending in `Proxy`.
 Test: if the provider changed tomorrow, the interface name must not need to change.
 
 - An interface lives in the `proxy.go` of the feature that consumes it.
+- **Exception — capabilities returned by a capability.** When a proxy method must return
+  another capability (e.g. `Open` returns an open conversation), the infrastructure has to
+  name that interface in its method signature, which Go only allows for exported types.
+  Such an interface is exported with an `I` prefix (`IConversationLink`), lives in the
+  same `proxy.go`, and its godoc states that the library implements it and users never do.
 - Implementation files never declare interfaces.
 
 ### Data is never an interface
