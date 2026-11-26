@@ -112,7 +112,7 @@ Scenario: Claude Code's answer cannot be understood
   Given Claude Code answers the sign-in question with something unreadable
   When the developer checks the sign-in state
   Then the check fails as "could not read sign-in state"
-  And the failure includes what Claude Code said
+  And the failure includes what Claude Code said, with the person's email and organisation removed
 
 Scenario: The developer gives up waiting
   Given Claude Code has not yet answered
@@ -261,7 +261,9 @@ flowchart TD
   - The oldest supported Claude Code release is 2.1.0; releases are compared part by part (major, minor, patch).
   - A chosen copy of Claude Code is used as-is; when it does not exist, no other copy is tried.
   - "Not signed in" is a state, never a failure — for checking and for signing out.
-  - Exactly one sign-in method per sign-in; the Claude subscription is the default.
+  - Exactly one sign-in method per sign-in, chosen from the three offered; the Claude subscription is the default. A method the library does not offer is refused as "unknown sign-in method".
+  - The developer may choose where the interactive sign-in is shown (another terminal or window); by default it uses the program's own terminal.
+  - A setting given with an empty value (Claude Code location, profile, pass or key) is refused as "invalid option".
   - At most one kind of credential may be handed over.
   - A profile isolates sign-in and conversation history; no profile means the everyday sign-in.
   - A handed-over secret is hidden wherever it would otherwise appear in what the library reports.
@@ -272,6 +274,8 @@ flowchart TD
   - Claude Code answers with something unreadable → "could not read sign-in state", including what it said.
   - Person abandons the sign-in → "sign-in was not completed".
   - Claude Code disappears between preparation and use → "Claude Code is not installed".
+  - Claude Code fails while reporting its release → "Claude Code release is not recognized".
+  - Claude Code fails to sign out → "sign-out failed", including what Claude Code said with secrets hidden.
 
 ---
 
@@ -288,11 +292,11 @@ flowchart TD
 
 - **Performance:** Checking the sign-in state adds no noticeable delay beyond Claude Code's own answer time. Giving up stops an operation within one second.
 - **Security:**
-  - Handed-over secrets never appear in failures, refusals or descriptions of the library's settings.
+  - Handed-over secrets never appear in failures, refusals or descriptions of the library's settings — including text Claude Code printed.
   - The library never reads saved sign-in secrets and never performs its own sign-in.
   - Account identity details (email, organisation) are available to the developer but never included in failures.
 - **Compatibility:** macOS, Linux and Windows wherever Claude Code 2.1.0 or later runs; the two most recent Go releases.
-- **Dependencies:** The library adds no third-party dependencies to the developer's program.
+- **Dependencies:** No third-party code is compiled into the developer's program. (Test-only tools used by the library's own tests are not part of the developer's program.)
 - **Analytics / Tracking:** None. The library collects and sends nothing.
 
 ---
