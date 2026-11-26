@@ -173,6 +173,10 @@ stateDiagram-v2
   - Closing ends Claude Code's work, including commands Claude started; it is harmless to repeat.
   - Every failure that a one-shot request recognises (empty, round limit, not signed in, problem, unknown conversation, missing work folder) is recognised per message the same way.
   - Handed-over secrets are hidden in every text that reaches the developer.
+  - The cost of a reply given up on still counts toward the total when Claude Code reports it.
+  - A message whose giving-up was already decided before sending is never sent.
+  - An interrupt always reaches Claude Code before the next message, so it can never abandon a later reply.
+  - A closed or ended conversation says so before a message is checked for being empty.
 - **Edge Cases:** Claude Code stops on its own → "the conversation ended" from then on; an answer that cannot be understood is ignored unless it is a final answer.
 
 ---
