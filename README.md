@@ -1,5 +1,13 @@
 # go-claude
 
+[![CI](https://github.com/CodeMachine0121/go-claude/actions/workflows/ci.yml/badge.svg)](https://github.com/CodeMachine0121/go-claude/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/CodeMachine0121/go-claude.svg)](https://pkg.go.dev/github.com/CodeMachine0121/go-claude)
+[![Go Report Card](https://goreportcard.com/badge/github.com/CodeMachine0121/go-claude)](https://goreportcard.com/report/github.com/CodeMachine0121/go-claude)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+> **Unofficial.** go-claude is a community project. It is not made, endorsed or supported
+> by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic, PBC.
+
 Use Claude from Go programs through the [Claude Code](https://www.anthropic.com/claude-code)
 CLI installed on the machine — with whatever account Claude Code is signed in with,
 **including a Claude subscription** (Pro, Max, Team, Enterprise).
@@ -7,8 +15,20 @@ CLI installed on the machine — with whatever account Claude Code is signed in 
 The library never reads stored credentials and never signs in on its own: every sign-in
 goes through the Claude Code CLI.
 
-> **Status:** early development. Sign-in management, profiles, one-shot requests and
-> multi-message conversations are available.
+## Why go-claude
+
+- **Your own sign-in.** Programs run on the Claude Code login already on the machine,
+  subscription or developer key; nothing new to provision.
+- **One-shot requests and conversations.** Ask once with a cap on Claude Code's rounds, or
+  keep a conversation open, send message after message and interrupt a reply mid-way.
+- **Cancellation that cleans up.** Giving up through `context.Context` stops Claude Code
+  and, on Unix, the commands it started.
+- **Exact costs.** Every reply reports its cost as decimal text and integer nanodollars,
+  never a float.
+- **No secrets leak.** Handed-over tokens and keys are scrubbed from every error and text.
+
+> **Status:** pre-1.0. Sign-in management, profiles, one-shot requests and multi-message
+> conversations are available; the API may still change before v1.
 
 ## Requirements
 
@@ -161,4 +181,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). go-claude is not affiliated with Anthropic; using Claude through it is
+governed by your own agreement with Anthropic.
