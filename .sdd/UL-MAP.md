@@ -15,8 +15,8 @@
 | Person | — | user | The person running the developer's program; owns the Claude sign-in. | Confirmed |
 | Claude Code | `claudecode.ClaudeCodeProxy` | Claude Code | The Claude Code tool installed on the person's computer. Every interaction with Claude goes through it. | Confirmed |
 | Claude Code copy | `claude.WithCLIPath` | Claude Code path | A particular installation of Claude Code the developer points to, instead of the one found automatically. | Confirmed |
-| Claude Code release | `auth.VersionVo` | version | The release number of Claude Code. Must be at least the oldest supported release. | Confirmed |
-| Oldest supported release | `auth.MinimumSupportedVersion` | minimum version | The lowest Claude Code release the library accepts. | Confirmed |
+| Claude Code release | `installation.VersionVo` | version | The release number of Claude Code. Must be at least the oldest supported release. | Confirmed |
+| Oldest supported release | `installation.MinimumSupportedVersion` | minimum version | The lowest Claude Code release the library accepts. | Confirmed |
 | Sign-in state | `auth.StatusDto` / `auth.SignInStatusDomain` / `auth.StatusVo` | sign-in status | Whether the person is signed in, the account kind, the plan, and when the sign-in expires. "Not signed in" is an ordinary state. | Confirmed |
 | Account kind | `auth.AccountKind` | account type | How the person is signed in: Claude subscription, developer account, ready-made subscription pass, developer account key, or not signed in. Unknown kinds are kept, not rejected. | Confirmed |
 | Plan | `auth.StatusDto.Plan` | plan | The subscription tier (e.g. pro, max, team) when signed in with a Claude subscription. | Confirmed |
@@ -26,7 +26,7 @@
 | Everyday sign-in | — | default profile | The sign-in Claude Code uses when no profile is chosen. | Confirmed |
 | Subscription pass | `claude.WithOAuthToken` | OAuth token | A ready-made long-lived pass issued for a Claude subscription, for unattended use. Secret. | Confirmed |
 | Developer account key | `claude.WithAPIKey` | API key | A key of a pay-per-use developer account, for unattended use. Secret. | Confirmed |
-| Credential | `claude.credential` | — | Either a subscription pass or a developer account key; at most one may be supplied. | Confirmed |
+| Credential | `claudecode.Credential` | — | Either a subscription pass or a developer account key; at most one may be supplied. | Confirmed |
 
 ---
 
@@ -34,7 +34,7 @@
 
 | Business Action | Technical Method | Trigger | Business Impact | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| Locate Claude Code | `ClaudeCodeProxy` construction / first use | Developer creates the library entry point | Ready, or refused as not installed / too old | A chosen copy is never replaced by another |
+| Locate Claude Code | `installation.UseCase.Verify` (inside `claude.New`) | Developer creates the library entry point | Ready, or refused as not installed / too old | A chosen copy is never replaced by another |
 | Check sign-in state | `auth.UseCase.Status` | Developer asks | Reports the sign-in state; no change | |
 | Sign in | `auth.UseCase.Login` | Developer asks on the person's behalf | Person completes sign-in themselves through Claude Code | Interactive; uses the person's terminal |
 | Sign out | `auth.UseCase.Logout` | Developer asks | Profile becomes not signed in | Already signed out is accepted quietly |
