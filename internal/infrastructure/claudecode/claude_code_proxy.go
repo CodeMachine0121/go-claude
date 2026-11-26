@@ -15,6 +15,7 @@ import (
 
 	"github.com/CodeMachine0121/go-claude/auth"
 	"github.com/CodeMachine0121/go-claude/installation"
+	"github.com/CodeMachine0121/go-claude/query"
 )
 
 const waitAfterCancel = 500 * time.Millisecond
@@ -46,7 +47,7 @@ func (e execution) said() string {
 
 // Inspect reports where Claude Code is and which release it is.
 func (p *ClaudeCodeProxy) Inspect(ctx context.Context) (installation.InstallationVo, error) {
-	run, err := p.execute(ctx, false, "--version")
+	run, err := p.execute(ctx, invocation{arguments: []string{"--version"}})
 	if err != nil {
 		return installation.InstallationVo{}, err
 	}
@@ -64,7 +65,7 @@ func (p *ClaudeCodeProxy) Inspect(ctx context.Context) (installation.Installatio
 // failure status when nobody is signed in, so its answer, not its exit status,
 // decides the outcome.
 func (p *ClaudeCodeProxy) ReadStatus(ctx context.Context) (auth.StatusVo, error) {
-	run, err := p.execute(ctx, false, "auth", "status")
+	run, err := p.execute(ctx, invocation{arguments: []string{"auth", "status"}})
 	if err != nil {
 		return auth.StatusVo{}, err
 	}
@@ -78,7 +79,7 @@ func (p *ClaudeCodeProxy) ReadStatus(ctx context.Context) (auth.StatusVo, error)
 
 // SignIn lets the person sign in through Claude Code on the attached terminal.
 func (p *ClaudeCodeProxy) SignIn(ctx context.Context, signIn auth.SignInVo) error {
-	run, err := p.execute(ctx, true, signInCommand{signIn: signIn}.arguments()...)
+	run, err := p.execute(ctx, invocation{arguments: signInCommand{signIn: signIn}.arguments(), terminal: true})
 	if err != nil {
 		return err
 	}
@@ -90,7 +91,7 @@ func (p *ClaudeCodeProxy) SignIn(ctx context.Context, signIn auth.SignInVo) erro
 
 // SignOut asks Claude Code to sign out. Claude Code succeeds when already signed out.
 func (p *ClaudeCodeProxy) SignOut(ctx context.Context) error {
-	run, err := p.execute(ctx, false, "auth", "logout")
+	run, err := p.execute(ctx, invocation{arguments: []string{"auth", "logout"}})
 	if err != nil {
 		return err
 	}
@@ -100,25 +101,62 @@ func (p *ClaudeCodeProxy) SignOut(ctx context.Context) error {
 	return nil
 }
 
+// Ask runs one request through Claude Code with the request on standard input,
+// so requests of any length work on every platform. The final answer decides
+// the outcome, whatever Claude Code's exit status.
+func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query.OutcomeVo, error) {
+	if request.WorkingDirectory != "" {
+		if info, err := os.Stat(request.WorkingDirectory); err != nil || !info.IsDir() {
+			return query.OutcomeVo{}, fmt.Errorf("%w: %q", query.ErrWorkFolderMissing, request.WorkingDirectory)
+		}
+	}
+	run, err := p.execute(ctx, invocation{
+		arguments: queryCommand{query: request}.arguments(),
+		input:     request.Prompt,
+		directory: request.WorkingDirectory,
+	})
+	if err != nil {
+		return query.OutcomeVo{}, err
+	}
+	payload, err := newResultPayload([]byte(run.output))
+	if err != nil && strings.Contains(run.said(), "No conversation found") {
+		return query.OutcomeVo{}, fmt.Errorf("%w: %q", query.ErrConversationNotFound, request.SessionID)
+	}
+	if err != nil {
+		return query.OutcomeVo{}, &query.UnreadableReplyError{Output: run.said()}
+	}
+	return payload.ToVo(), nil
+}
+
+// invocation is one way of running Claude Code.
+type invocation struct {
+	arguments []string
+	// terminal attaches the run to the configured streams instead of capturing it.
+	terminal bool
+	// input is written to Claude Code's standard input.
+	input string
+	// directory is the folder Claude Code runs in; empty means the current one.
+	directory string
+}
+
 // execute runs Claude Code once. It fails only when the run could not happen or
 // was given up: installation.ErrNotInstalled, the context's error, or a start
 // failure. A run that ended with a failure status is reported through
 // execution.succeeded. Supplied secrets are hidden from every text it returns.
-// With terminal set, the run is attached to the configured streams and nothing
-// is captured.
-func (p *ClaudeCodeProxy) execute(ctx context.Context, terminal bool, arguments ...string) (execution, error) {
+func (p *ClaudeCodeProxy) execute(ctx context.Context, run invocation) (execution, error) {
 	path, err := p.settings.executablePath()
 	if err != nil {
 		return execution{}, err
 	}
-	command := exec.CommandContext(ctx, path, arguments...)
+	command := exec.CommandContext(ctx, path, run.arguments...)
 	command.Env = p.settings.environment(os.Environ())
+	command.Dir = run.directory
 	command.WaitDelay = waitAfterCancel
 	var stdout, stderr bytes.Buffer
-	if terminal {
+	if run.terminal {
 		command.Stdin, command.Stdout, command.Stderr = p.settings.Stdin, p.settings.Stdout, p.settings.Stderr
 	} else {
-		command.Stdout, command.Stderr = &stdout, &stderr
+		command.Stdin, command.Stdout, command.Stderr = strings.NewReader(run.input), &stdout, &stderr
 	}
 
 	runErr := command.Run()
