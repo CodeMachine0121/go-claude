@@ -17,7 +17,8 @@
 | `UseCase` | **Main focus**: happy path, boundaries, every error | Only the unexported `iXxxProxy` |
 | Domain models / VOs | Direct unit tests: inputs in, results out | Nothing |
 | Composition root (`claude.New`) | Option validation: conflicts, defaults | Nothing; no external resources |
-| `ClaudeCodeProxy` | No unit tests. Testable logic (decoding, comparing, normalizing) belongs on VOs; the remaining I/O is covered by integration tests | — |
+| `ClaudeCodeProxy` process I/O | No unit tests; covered by integration tests | — |
+| Pure code inside infrastructure (wire decoding, secret redaction, argument building) | Unit tests in the same package, fed with **recorded real CLI output** pasted as test data. Recordings are data, not fakes: they carry no logic | Nothing |
 | Real Claude Code CLI | Integration tests in `test/` | Nothing |
 
 ## Mocking
