@@ -1,11 +1,18 @@
 package claudecode
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/CodeMachine0121/go-claude/query"
 )
 
 func TestConversationWireLines(t *testing.T) {
@@ -22,4 +29,87 @@ func TestConversationWireLines(t *testing.T) {
 		require.NoError(t, err)
 		assert.JSONEq(t, `{"type":"control_request","request_id":"interrupt-1","request":{"subtype":"interrupt"}}`, string(line))
 	})
+}
+
+func TestConversationLink_Deliver(t *testing.T) {
+	t.Run("a final answer reaches the waiting message with secrets hidden", func(t *testing.T) {
+		link := &conversationLink{answers: make(chan answer, 1), credential: NewOAuthToken("sk-ant-oat01-SECRET")}
+
+		link.deliver([]byte(`{"type":"result","subtype":"success","num_turns":1,"result":"pass sk-ant-oat01-SECRET","total_cost_usd":0.01}`))
+
+		delivered := <-link.answers
+		require.NoError(t, delivered.err)
+		assert.Equal(t, query.OutcomeFinished, delivered.outcome.Kind)
+		assert.Equal(t, "pass [REDACTED]", delivered.outcome.Text)
+	})
+
+	t.Run("a final answer that cannot be understood is reported, never dropped", func(t *testing.T) {
+		link := &conversationLink{answers: make(chan answer, 1), credential: NewOAuthToken("sk-ant-oat01-SECRET")}
+
+		link.deliver([]byte(`{"type":"result","result":"sk-ant-oat01-SECRET"}`))
+
+		delivered := <-link.answers
+		require.ErrorIs(t, delivered.err, query.ErrUnreadableReply)
+		assert.NotContains(t, delivered.err.Error(), "sk-ant-oat01-SECRET")
+	})
+}
+
+func TestConversationLink_ABrokenLinkRefusesEveryMessage(t *testing.T) {
+	link := &conversationLink{answers: make(chan answer, 1), ended: make(chan struct{})}
+	link.broken.Store(true)
+
+	_, err := link.Send(context.Background(), "hi")
+
+	require.ErrorIs(t, err, query.ErrConversationEnded)
+}
+
+func TestConversationLink_AnEndedContextSendsNothing(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+	link := &conversationLink{input: writer, answers: make(chan answer, 1), ended: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = link.Send(ctx, "hi")
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, writer.Close())
+	written, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Empty(t, written, "nothing should reach claude code")
+}
+
+func TestConversationLink_GivingUpOnAStuckWriteBreaksTheLink(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close() })
+	stopped := make(chan struct{})
+	link := &conversationLink{
+		input: writer, answers: make(chan answer, 1), ended: make(chan struct{}),
+		stop: func() { close(stopped); _ = writer.Close() },
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+
+	_, err = link.Send(ctx, strings.Repeat("x", 4<<20)) // far more than a pipe holds; nobody reads it
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(started), time.Second)
+	<-stopped
+	assert.True(t, link.broken.Load())
+	_, later := link.Send(context.Background(), "hi")
+	require.ErrorIs(t, later, query.ErrConversationEnded)
+}
+
+func TestDiagnostics_KeepsOnlyTheBeginning(t *testing.T) {
+	kept := &diagnostics{}
+
+	written, err := kept.Write([]byte(strings.Repeat("a", keptDiagnostics-2) + "bcdef"))
+	_, _ = kept.Write([]byte("more"))
+
+	require.NoError(t, err)
+	assert.Equal(t, keptDiagnostics+3, written)
+	assert.Equal(t, strings.Repeat("a", keptDiagnostics-2)+"bc", kept.String())
 }

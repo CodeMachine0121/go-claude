@@ -20,12 +20,12 @@ import (
 
 const (
 	// settleAfterGivingUp is how long a given-up message waits for Claude Code
-	// to abandon the reply before the conversation is stopped.
-	settleAfterGivingUp = 750 * time.Millisecond
+	// to abandon the reply before the conversation is given up as broken.
+	settleAfterGivingUp = 600 * time.Millisecond
 	// settleAfterClosing is how long Close waits for Claude Code to finish on
 	// its own before stopping it.
 	settleAfterClosing = 2 * time.Second
-	// keptDiagnostics bounds the non-JSON text kept to explain an ending.
+	// keptDiagnostics bounds the text kept to explain why Claude Code stopped.
 	keptDiagnostics = 4096
 )
 
@@ -51,18 +51,57 @@ type interruptSubtype struct {
 	Subtype string `json:"subtype"`
 }
 
+// lineKind is the part of every line that says what it is.
+type lineKind struct {
+	Type string `json:"type"`
+}
+
+// answer is one final answer: decoded, or why it could not be.
+type answer struct {
+	outcome query.OutcomeVo
+	err     error
+}
+
+// diagnostics keeps the beginning of what Claude Code printed outside its
+// answers, up to keptDiagnostics bytes, and drops the rest.
+type diagnostics struct {
+	mutex sync.Mutex
+	kept  bytes.Buffer
+}
+
+// Write keeps what still fits and reports everything as written.
+func (d *diagnostics) Write(text []byte) (int, error) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	room := keptDiagnostics - d.kept.Len()
+	if room > 0 {
+		d.kept.Write(text[:min(room, len(text))])
+	}
+	return len(text), nil
+}
+
+// String is what was kept.
+func (d *diagnostics) String() string {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	return d.kept.String()
+}
+
 // conversationLink is one Claude Code process exchanging JSON lines: messages
 // in, answers out. One goroutine reads every line; final answers go to the
 // waiting Send, everything else is ignored.
+//
+// A link that could not settle a given-up message is broken: the late answer
+// must never reach the next message, so every later Send fails as ended.
 type conversationLink struct {
 	command    *exec.Cmd
 	stop       context.CancelFunc
 	credential Credential
 	input      io.WriteCloser
-	writing    sync.Mutex
-	answers    chan resultPayload
+	answers    chan answer
 	ended      chan struct{}
 	ending     error
+	broken     atomic.Bool
 	requests   atomic.Int64
 	closing    sync.Once
 }
@@ -76,8 +115,8 @@ func newConversationLink(command *exec.Cmd, stop context.CancelFunc, credential 
 	if err != nil {
 		return nil, err
 	}
-	var diagnostics bytes.Buffer
-	command.Stderr = &diagnostics
+	printed := &diagnostics{}
+	command.Stderr = printed
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
@@ -86,29 +125,25 @@ func newConversationLink(command *exec.Cmd, stop context.CancelFunc, credential 
 		stop:       stop,
 		credential: credential,
 		input:      input,
-		answers:    make(chan resultPayload, 1),
+		answers:    make(chan answer, 1),
 		ended:      make(chan struct{}),
 	}
-	go link.read(output, &diagnostics)
+	go link.read(output, printed)
 	return link, nil
 }
 
 // read forwards final answers until Claude Code stops, then records why it stopped.
-func (l *conversationLink) read(output io.Reader, diagnostics *bytes.Buffer) {
-	var unexpected strings.Builder
+func (l *conversationLink) read(output io.Reader, printed *diagnostics) {
 	lines := bufio.NewReader(output)
 	for {
 		line, err := lines.ReadBytes('\n')
 		if len(bytes.TrimSpace(line)) > 0 {
-			payload, decodeErr := newResultPayload(line)
+			var kind lineKind
 			switch {
-			case decodeErr == nil:
-				select {
-				case l.answers <- payload:
-				default:
-				}
-			case !json.Valid(line) && unexpected.Len() < keptDiagnostics:
-				unexpected.Write(line)
+			case json.Unmarshal(line, &kind) != nil:
+				_, _ = printed.Write(line)
+			case kind.Type == "result":
+				l.deliver(line)
 			}
 		}
 		if err != nil {
@@ -116,7 +151,7 @@ func (l *conversationLink) read(output io.Reader, diagnostics *bytes.Buffer) {
 		}
 	}
 	_ = l.command.Wait()
-	said := l.credential.Redact(strings.TrimSpace(unexpected.String() + "\n" + diagnostics.String()))
+	said := l.credential.Redact(strings.TrimSpace(printed.String()))
 	l.ending = query.ErrConversationEnded
 	if said != "" {
 		l.ending = fmt.Errorf("%w: claude code said %q", query.ErrConversationEnded, said)
@@ -128,34 +163,77 @@ func (l *conversationLink) read(output io.Reader, diagnostics *bytes.Buffer) {
 	close(l.ended)
 }
 
-// Send writes one message and waits for its final answer.
+// deliver hands a final answer to the waiting Send. An answer that cannot be
+// understood is delivered as an unreadable reply rather than dropped, so the
+// message never waits forever.
+func (l *conversationLink) deliver(line []byte) {
+	delivered := answer{}
+	payload, err := newResultPayload(line)
+	if err != nil {
+		delivered.err = &query.UnreadableReplyError{Output: l.credential.Redact(strings.TrimSpace(string(line)))}
+	} else {
+		delivered.outcome = payload.ToVo(l.credential)
+	}
+	select {
+	case l.answers <- delivered:
+	default:
+	}
+}
+
+// Send writes one message and waits for its final answer. When ctx ends first
+// it interrupts the reply and returns the answer that settled it, if any,
+// together with the context's error.
 func (l *conversationLink) Send(ctx context.Context, message string) (query.OutcomeVo, error) {
+	if err := ctx.Err(); err != nil {
+		return query.OutcomeVo{}, fmt.Errorf("claude code was given up: %w", err)
+	}
+	if l.broken.Load() {
+		return query.OutcomeVo{}, query.ErrConversationEnded
+	}
 	line, err := json.Marshal(userMessage{Type: "user", Message: userContent{Role: "user", Content: message}})
 	if err != nil {
 		return query.OutcomeVo{}, err
 	}
-	if err := l.write(line); err != nil {
-		<-l.ended
-		return query.OutcomeVo{}, l.ending
+	written := make(chan error, 1)
+	go func() { written <- l.write(line) }()
+	select {
+	case err := <-written:
+		if err != nil {
+			<-l.ended
+			return query.OutcomeVo{}, l.ending
+		}
+	case <-ctx.Done():
+		l.giveUp()
+		return query.OutcomeVo{}, fmt.Errorf("claude code was given up: %w", ctx.Err())
 	}
 	select {
-	case answer := <-l.answers:
-		return answer.ToVo(l.credential), nil
+	case settled := <-l.answers:
+		return settled.outcome, settled.err
 	case <-l.ended:
 		return query.OutcomeVo{}, l.ending
 	case <-ctx.Done():
 	}
 	_ = l.Interrupt(context.Background())
+	settled := answer{}
 	select {
-	case <-l.answers:
+	case settled = <-l.answers:
 	case <-l.ended:
 	case <-time.After(settleAfterGivingUp):
-		l.stop()
+		l.giveUp()
 	}
-	return query.OutcomeVo{}, fmt.Errorf("claude code was given up: %w", ctx.Err())
+	return settled.outcome, fmt.Errorf("claude code was given up: %w", ctx.Err())
 }
 
-// Interrupt asks Claude Code to abandon the reply being written. A conversation
+// giveUp marks the link broken and stops Claude Code, together with the
+// commands it started.
+func (l *conversationLink) giveUp() {
+	l.broken.Store(true)
+	l.stop()
+}
+
+// Interrupt asks Claude Code to abandon the reply being written. Claude Code
+// handles lines in order and ignores an interrupt when idle, so an interrupt
+// written before the next message never reaches that message. A conversation
 // that has ended has nothing to interrupt.
 func (l *conversationLink) Interrupt(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
@@ -169,19 +247,16 @@ func (l *conversationLink) Interrupt(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := l.write(line); err != nil && !errors.Is(err, errLinkEnded) {
-		return err
-	}
+	_ = l.write(line)
 	return nil
 }
 
 // Close ends Claude Code's input and waits for it to finish; when it does not
 // finish in time it is stopped, together with the commands it started.
+// Closing the input also releases a write that Claude Code stopped reading.
 func (l *conversationLink) Close() error {
 	l.closing.Do(func() {
-		l.writing.Lock()
 		_ = l.input.Close()
-		l.writing.Unlock()
 		select {
 		case <-l.ended:
 		case <-time.After(settleAfterClosing):
@@ -194,10 +269,9 @@ func (l *conversationLink) Close() error {
 
 var errLinkEnded = errors.New("conversation link ended")
 
-// write sends one JSON line, unless Claude Code has already stopped.
+// write sends one JSON line in a single write, unless Claude Code has stopped.
+// Lines are written whole by one call, so concurrent writes never interleave.
 func (l *conversationLink) write(line []byte) error {
-	l.writing.Lock()
-	defer l.writing.Unlock()
 	select {
 	case <-l.ended:
 		return errLinkEnded
