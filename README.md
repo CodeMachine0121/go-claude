@@ -101,4 +101,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-TBD
+[MIT](LICENSE)
