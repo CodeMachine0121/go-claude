@@ -87,7 +87,7 @@ func TestNewResultPayload_ToVo(t *testing.T) {
 			require.NoError(t, err)
 			tt.expected.Cost = expectedCost
 
-			assert.Equal(t, tt.expected, payload.ToVo())
+			assert.Equal(t, tt.expected, payload.ToVo(Credential{}))
 		})
 	}
 }
@@ -110,4 +110,17 @@ func TestNewResultPayload_Unreadable(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+func TestResultPayload_ToVo_HidesASecretThatJSONEscaped(t *testing.T) {
+	answer := `{"type":"result","is_error":true,"num_turns":1,"total_cost_usd":0,` +
+		`"result":"rejected pass sk-ant-oat01-SE\u0043RET","errors":["sk-ant-oat01-SE\u0043RET is invalid"]}`
+	payload, err := newResultPayload([]byte(answer))
+	require.NoError(t, err)
+
+	outcome := payload.ToVo(NewOAuthToken("sk-ant-oat01-SECRET"))
+
+	assert.Equal(t, "rejected pass [REDACTED]", outcome.Text)
+	assert.Equal(t, "rejected pass [REDACTED]\n[REDACTED] is invalid", outcome.Explanation)
+	assert.NotContains(t, outcome.Text+outcome.Explanation, "sk-ant-oat01-SECRET")
 }

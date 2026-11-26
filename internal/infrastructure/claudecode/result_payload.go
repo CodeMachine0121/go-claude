@@ -41,8 +41,10 @@ func newResultPayload(data []byte) (resultPayload, error) {
 	return payload, nil
 }
 
-// ToVo normalizes the answer into the query feature's outcome.
-func (p resultPayload) ToVo() query.OutcomeVo {
+// ToVo normalizes the answer into the query feature's outcome. Texts are
+// redacted again after decoding: a secret that JSON escapes (a quote, a
+// backslash, a \u sequence) does not match in the raw answer.
+func (p resultPayload) ToVo(credential Credential) query.OutcomeVo {
 	explanation := strings.TrimSpace(strings.Join(append([]string{p.Result}, p.Errors...), "\n"))
 	kind := query.OutcomeFinished
 	switch {
@@ -55,10 +57,10 @@ func (p resultPayload) ToVo() query.OutcomeVo {
 	}
 	return query.OutcomeVo{
 		Kind:        kind,
-		Text:        p.Result,
+		Text:        credential.Redact(p.Result),
 		Turns:       p.NumberOfTurns,
 		SessionID:   p.SessionID,
 		Cost:        p.cost,
-		Explanation: explanation,
+		Explanation: credential.Redact(explanation),
 	}
 }

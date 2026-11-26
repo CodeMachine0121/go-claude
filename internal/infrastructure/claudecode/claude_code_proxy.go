@@ -125,7 +125,7 @@ func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query
 	if err != nil {
 		return query.OutcomeVo{}, &query.UnreadableReplyError{Output: run.said()}
 	}
-	return payload.ToVo(), nil
+	return payload.ToVo(p.settings.Credential), nil
 }
 
 // invocation is one way of running Claude Code.
@@ -152,6 +152,7 @@ func (p *ClaudeCodeProxy) execute(ctx context.Context, run invocation) (executio
 	command.Env = p.settings.environment(os.Environ())
 	command.Dir = run.directory
 	command.WaitDelay = waitAfterCancel
+	run.stopTogether(command)
 	var stdout, stderr bytes.Buffer
 	if run.terminal {
 		command.Stdin, command.Stdout, command.Stderr = p.settings.Stdin, p.settings.Stdout, p.settings.Stderr
