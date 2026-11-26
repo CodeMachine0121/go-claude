@@ -169,3 +169,40 @@ func TestClosingEndsClaudeCodesWork(t *testing.T) {
 		"claude code kept running after closing")
 	require.NoError(t, conversation.Close())
 }
+
+func TestAProblemClaudeExplainsKeepsTheConversationOpen(t *testing.T) {
+	client := everydayClient(t, contextFor(t, 10*time.Second))
+	conversation := openConversation(t, client, query.ConversationRequest{Model: "no-such-model"})
+
+	_, first := conversation.Send(contextFor(t, time.Minute), "hi")
+	_, second := conversation.Send(contextFor(t, time.Minute), "hi again")
+
+	require.ErrorIs(t, first, query.ErrClaudeReportedProblem)
+	assert.Contains(t, first.Error(), "no-such-model")
+	require.ErrorIs(t, second, query.ErrClaudeReportedProblem, "the conversation should still answer")
+}
+
+func TestAVeryLongMessageReachesClaude(t *testing.T) {
+	client := everydayClient(t, contextFor(t, 10*time.Second))
+	conversation := openConversation(t, client, query.ConversationRequest{Model: "no-such-model"})
+	longMessage := strings.Repeat("All work and no play. ", 20_000) // about 440 KB
+
+	_, err := conversation.Send(contextFor(t, time.Minute), longMessage)
+
+	require.ErrorIs(t, err, query.ErrClaudeReportedProblem, "the message should reach Claude, which then rejects the model")
+}
+
+func TestTheRoundCapAppliesToEachMessage(t *testing.T) {
+	requireLiveTests(t)
+	client := everydayClient(t, contextFor(t, 10*time.Second))
+	conversation := openConversation(t, client, query.ConversationRequest{MaxTurns: 1, AllowedTools: []string{"Bash"}})
+	ctx := contextFor(t, 2*time.Minute)
+
+	_, err := conversation.Send(ctx, "Use the Bash tool to run 'ls', then tell me how many entries there are.")
+	var limit *query.RoundLimitError
+	require.ErrorAs(t, err, &limit)
+
+	reply, err := conversation.Send(ctx, "Reply with exactly: AFTER")
+	require.NoError(t, err)
+	assert.Equal(t, "AFTER", reply.Text)
+}
