@@ -94,6 +94,46 @@ func TestNewResultPayload_ToVo(t *testing.T) {
 			cost: "0.00768983",
 		},
 		{
+			name:   "a usage-limit refusal",
+			answer: usageLimitResult,
+			expected: query.OutcomeVo{
+				Kind: query.OutcomeUsageLimitReached, Turns: 1, SessionID: "s-limit",
+				Text:        "You've hit your session limit · resets 3pm (UTC)",
+				Explanation: "You've hit your session limit · resets 3pm (UTC)",
+			},
+			cost: "0",
+		},
+		{
+			name: "the earlier wording of a usage-limit refusal carries its reset moment",
+			answer: `{"type":"result","subtype":"success","is_error":true,"num_turns":1,"total_cost_usd":0,` +
+				`"result":"Claude AI usage limit reached|1795791600"}`,
+			expected: query.OutcomeVo{
+				Kind: query.OutcomeUsageLimitReached, Turns: 1, ResetsAt: usageLimitResetsAt,
+				Text: "Claude AI usage limit reached|1795791600", Explanation: "Claude AI usage limit reached|1795791600",
+			},
+			cost: "0",
+		},
+		{
+			name: "the earlier wording without a readable reset moment",
+			answer: `{"type":"result","subtype":"success","is_error":true,"num_turns":1,"total_cost_usd":0,` +
+				`"result":"Claude AI usage limit reached|soon"}`,
+			expected: query.OutcomeVo{
+				Kind: query.OutcomeUsageLimitReached, Turns: 1,
+				Text: "Claude AI usage limit reached|soon", Explanation: "Claude AI usage limit reached|soon",
+			},
+			cost: "0",
+		},
+		{
+			name: "a temporary throttle is a problem, not the usage limit",
+			answer: `{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"num_turns":1,` +
+				`"total_cost_usd":0,"result":"API Error: Rate limited. Try again shortly."}`,
+			expected: query.OutcomeVo{
+				Kind: query.OutcomeProblem, Turns: 1,
+				Text: "API Error: Rate limited. Try again shortly.", Explanation: "API Error: Rate limited. Try again shortly.",
+			},
+			cost: "0",
+		},
+		{
 			name:     "an error outcome without the error flag is still a problem",
 			answer:   `{"type":"result","subtype":"error_during_execution","num_turns":1,"total_cost_usd":0,"errors":["tool crashed"]}`,
 			expected: query.OutcomeVo{Kind: query.OutcomeProblem, Turns: 1, Explanation: "tool crashed"},

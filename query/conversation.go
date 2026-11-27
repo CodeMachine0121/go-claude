@@ -18,6 +18,17 @@ type ConversationRequest struct {
 	AllowedTools []string
 	// SessionID continues an earlier conversation; empty starts a new one.
 	SessionID string
+	// MCPConfigurationPaths lists files describing the MCP servers Claude may
+	// connect to; see Request.MCPConfigurationPaths.
+	MCPConfigurationPaths []string
+	// StrictMCPConfiguration makes Claude use only the MCP servers of
+	// MCPConfigurationPaths.
+	StrictMCPConfiguration bool
+	// DisallowedTools lists the tools Claude must never use.
+	DisallowedTools []string
+	// AppendSystemPrompt is added after Claude Code's own system prompt. A
+	// continued conversation keeps the text it began with.
+	AppendSystemPrompt string
 }
 
 // ConversationDomain is a conversation request checked before anything starts.
@@ -31,11 +42,15 @@ func NewConversationDomain(request ConversationRequest) (ConversationDomain, err
 		return ConversationDomain{}, ErrNegativeMaxTurns
 	}
 	return ConversationDomain{query: QueryVo{
-		MaxTurns:         request.MaxTurns,
-		Model:            request.Model,
-		WorkingDirectory: request.WorkingDirectory,
-		AllowedTools:     append([]string(nil), request.AllowedTools...),
-		SessionID:        request.SessionID,
+		MaxTurns:               request.MaxTurns,
+		Model:                  request.Model,
+		WorkingDirectory:       request.WorkingDirectory,
+		AllowedTools:           append([]string(nil), request.AllowedTools...),
+		SessionID:              request.SessionID,
+		MCPConfigurationPaths:  append([]string(nil), request.MCPConfigurationPaths...),
+		StrictMCPConfiguration: request.StrictMCPConfiguration,
+		DisallowedTools:        append([]string(nil), request.DisallowedTools...),
+		AppendSystemPrompt:     request.AppendSystemPrompt,
 	}}, nil
 }
 
@@ -83,7 +98,8 @@ type Conversation struct {
 //
 // It is refused with ErrEmptyRequest, ErrStillAnswering, ErrConversationClosed
 // or ErrConversationEnded; it fails like Ask does otherwise, and with
-// ErrInterrupted when Interrupt abandoned the reply.
+// ErrInterrupted when Interrupt abandoned the reply. A *UsageLimitError leaves
+// the conversation open: send again once the limit resets.
 func (c *Conversation) Send(ctx context.Context, message string) (ResultDto, error) {
 	c.mutex.Lock()
 	if refusal := c.state.refusal(); refusal != nil {

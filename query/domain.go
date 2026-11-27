@@ -16,12 +16,16 @@ func NewQueryDomain(request Request) (QueryDomain, error) {
 		return QueryDomain{}, ErrNegativeMaxTurns
 	}
 	return QueryDomain{query: QueryVo{
-		Prompt:           request.Prompt,
-		MaxTurns:         request.MaxTurns,
-		Model:            request.Model,
-		WorkingDirectory: request.WorkingDirectory,
-		AllowedTools:     append([]string(nil), request.AllowedTools...),
-		SessionID:        request.SessionID,
+		Prompt:                 request.Prompt,
+		MaxTurns:               request.MaxTurns,
+		Model:                  request.Model,
+		WorkingDirectory:       request.WorkingDirectory,
+		AllowedTools:           append([]string(nil), request.AllowedTools...),
+		SessionID:              request.SessionID,
+		MCPConfigurationPaths:  append([]string(nil), request.MCPConfigurationPaths...),
+		StrictMCPConfiguration: request.StrictMCPConfiguration,
+		DisallowedTools:        append([]string(nil), request.DisallowedTools...),
+		AppendSystemPrompt:     request.AppendSystemPrompt,
 	}}, nil
 }
 
@@ -36,7 +40,7 @@ type OutcomeDomain struct {
 }
 
 // ToDto returns the final reply, or the failure the outcome stands for. A
-// reached round limit still reports rounds, cost and conversation.
+// reached round limit or usage limit still reports rounds, cost and conversation.
 func (d OutcomeDomain) ToDto() (ResultDto, error) {
 	switch d.outcome.Kind {
 	case OutcomeFinished:
@@ -49,6 +53,15 @@ func (d OutcomeDomain) ToDto() (ResultDto, error) {
 		}, nil
 	case OutcomeRoundLimitReached:
 		return ResultDto{}, &RoundLimitError{
+			Turns:           d.outcome.Turns,
+			CostUSD:         d.outcome.Cost.String(),
+			CostNanodollars: d.outcome.Cost.Nanodollars(),
+			SessionID:       d.outcome.SessionID,
+		}
+	case OutcomeUsageLimitReached:
+		return ResultDto{}, &UsageLimitError{
+			ResetsAt:        d.outcome.ResetsAt,
+			Explanation:     d.outcome.Explanation,
 			Turns:           d.outcome.Turns,
 			CostUSD:         d.outcome.Cost.String(),
 			CostNanodollars: d.outcome.Cost.Nanodollars(),

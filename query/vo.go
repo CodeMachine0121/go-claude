@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const nanodollarsPerDollar = 1_000_000_000
@@ -91,12 +92,16 @@ func (c CostVo) Since(previous CostVo) CostVo {
 
 // QueryVo is a validated request handed to the infrastructure.
 type QueryVo struct {
-	Prompt           string
-	MaxTurns         int
-	Model            string
-	WorkingDirectory string
-	AllowedTools     []string
-	SessionID        string
+	Prompt                 string
+	MaxTurns               int
+	Model                  string
+	WorkingDirectory       string
+	AllowedTools           []string
+	SessionID              string
+	MCPConfigurationPaths  []string
+	StrictMCPConfiguration bool
+	DisallowedTools        []string
+	AppendSystemPrompt     string
 }
 
 // OutcomeKind is how Claude's work on a request ended.
@@ -116,9 +121,13 @@ const (
 	OutcomeInterrupted
 	// OutcomeConversationNotFound means the conversation to continue is unknown.
 	OutcomeConversationNotFound
+	// OutcomeUsageLimitReached means the subscription's usage limit refused the request.
+	OutcomeUsageLimitReached
 )
 
 // OutcomeVo is Claude Code's final answer as normalized by the infrastructure.
+// ResetsAt is when a reached usage limit resets; zero when Claude Code did not
+// state it.
 type OutcomeVo struct {
 	Kind        OutcomeKind
 	Text        string
@@ -126,6 +135,7 @@ type OutcomeVo struct {
 	SessionID   string
 	Cost        CostVo
 	Explanation string
+	ResetsAt    time.Time
 }
 
 // ToDomain converts the answer into the domain model that decides what it means.

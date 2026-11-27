@@ -5,11 +5,14 @@ import "context"
 // iQueryProxy runs one request through Claude Code and reports how it ended.
 //
 // Ask returns ErrWorkFolderMissing before running when the work folder does not
-// exist, ErrConversationNotFound for an unknown conversation, and an error
-// matching the context's error when the context ends first.
+// exist, ErrInvalidMCPConfiguration when an MCP configuration file does not
+// exist or Claude Code cannot read it, ErrConversationNotFound for an unknown
+// conversation, and an error matching the context's error when the context
+// ends first.
 //
-// Open starts a conversation; it returns ErrWorkFolderMissing before starting
-// when the work folder does not exist.
+// Open starts a conversation; it returns ErrWorkFolderMissing or
+// ErrInvalidMCPConfiguration before starting when the work folder or an MCP
+// configuration file does not exist.
 type iQueryProxy interface {
 	Ask(ctx context.Context, query QueryVo) (OutcomeVo, error)
 	Open(ctx context.Context, query QueryVo) (IConversationLink, error)
@@ -21,7 +24,8 @@ type iQueryProxy interface {
 // Send writes one message and waits for its final answer. When ctx ends first
 // it interrupts the reply and returns an error matching the context's error.
 // When Claude Code has stopped, Send returns ErrConversationEnded, or
-// ErrConversationNotFound when Claude Code did not know the conversation.
+// ErrConversationNotFound when Claude Code did not know the conversation, or
+// ErrInvalidMCPConfiguration when it could not read an MCP configuration file.
 // Interrupt asks Claude Code to abandon the reply being written. Close ends
 // Claude Code's work and may be called more than once.
 type IConversationLink interface {
