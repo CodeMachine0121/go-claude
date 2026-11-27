@@ -90,7 +90,7 @@ switch {
 case errors.As(err, &limit):
 	// Stopped early; continue with query.Request{SessionID: limit.SessionID, ...}
 case err != nil:
-	return err // query.ErrNotSignedIn, *query.ProblemError, ...
+	return err // query.ErrNotSignedIn, *query.UsageLimitError, *query.ProblemError, ...
 }
 fmt.Println(result.Text)
 fmt.Println(result.Turns, result.CostUSD, result.SessionID)
@@ -126,10 +126,54 @@ _ = conversation.Interrupt(ctx) // the waiting Send fails with query.ErrInterrup
 One message is answered at a time (`query.ErrStillAnswering` otherwise). Cancelling a
 `Send`'s context gives up on that reply only; the conversation stays usable.
 
+### Run agents: role, MCP servers, forbidden tools
+
+`query.Request` and `query.ConversationRequest` take the same agent choices:
+
+| Field | Claude Code flag | Effect |
+| :--- | :--- | :--- |
+| `AllowedTools []string` | `--allowedTools` | Tools Claude may use without asking |
+| `DisallowedTools []string` | `--disallowedTools` | Tools Claude must never use, e.g. `"Edit"`, `"Bash(git push:*)"` |
+| `MCPConfigurationPaths []string` | `--mcp-config` | MCP configuration files; relative paths are found from `WorkingDirectory`. A missing or unreadable file fails with `query.ErrInvalidMCPConfiguration` |
+| `StrictMCPConfiguration bool` | `--strict-mcp-config` | Use only the MCP servers of `MCPConfigurationPaths`, ignoring the person's own |
+| `AppendSystemPrompt string` | `--append-system-prompt` | Text added after Claude Code's system prompt, such as the agent's role |
+
+```go
+reviewer, err := client.Query().Open(ctx, query.ConversationRequest{
+	WorkingDirectory:       "/agents/reviewer",
+	AppendSystemPrompt:     "You are the code reviewer. Never change files.",
+	MCPConfigurationPaths:  []string{"mcp.json"}, // /agents/reviewer/mcp.json
+	StrictMCPConfiguration: true,
+	DisallowedTools:        []string{"Edit", "Write"},
+})
+```
+
+> [!NOTE]
+> Claude Code records the system prompt when a conversation begins: continuing a
+> conversation with `SessionID` keeps the `AppendSystemPrompt` it began with.
+
+### When the usage limit is reached
+
+A request or message refused by the subscription's usage limit (session, weekly or
+per-model limit, or a spend cap) fails with `query.ErrUsageLimitReached`. The
+`*query.UsageLimitError` says when the limit resets whenever Claude Code states it, so a
+scheduler can pause instead of retrying; a conversation stays open.
+
+```go
+var usage *query.UsageLimitError
+if errors.As(err, &usage) {
+	if !usage.ResetsAt.IsZero() {
+		time.Sleep(time.Until(usage.ResetsAt)) // or schedule the agent for later
+	}
+	// continue with query.Request{SessionID: usage.SessionID, ...}
+}
+```
+
 > [!NOTE]
 > Requests and conversations run with the person's own Claude Code settings —
 > `CLAUDE.md` files, hooks, plugins and MCP servers apply as they do in Claude Code.
-> Use `WithProfile` for a clean, separate setup.
+> Use `WithProfile` for a clean, separate setup, and `StrictMCPConfiguration` to keep
+> the person's MCP servers out.
 
 ### Separate profiles
 
