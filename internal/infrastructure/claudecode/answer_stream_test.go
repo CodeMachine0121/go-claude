@@ -54,7 +54,7 @@ func followed(t *testing.T, text string, writeSize int, credential Credential) (
 		require.Equal(t, min(writeSize, len(text)-start), written)
 	}
 	stream.Flush()
-	return delivered, printed.String()
+	return delivered, printed.Said(credential)
 }
 
 func TestAnswerStream_UsageLimit(t *testing.T) {
@@ -85,6 +85,13 @@ func TestAnswerStream_UsageLimit(t *testing.T) {
 		{
 			name:         "no reset moment is invented when none was stated",
 			lines:        []string{recordedSystemLine, usageLimitResult},
+			expectedKind: query.OutcomeUsageLimitReached,
+		},
+		{
+			name: "a rejected notice without a reset moment withdraws an earlier one",
+			lines: []string{
+				usageLimitNotice, strings.Replace(usageLimitNotice, `"resetsAt":1795791600,`, "", 1), usageLimitResult,
+			},
 			expectedKind: query.OutcomeUsageLimitReached,
 		},
 		{
@@ -139,11 +146,25 @@ func TestAnswerStream_Lines(t *testing.T) {
 		assert.Equal(t, query.OutcomeRoundLimitReached, delivered[1].outcome.Kind)
 	})
 
+	t.Run("a refusal after earlier replies carries only its own reset moment", func(t *testing.T) {
+		delivered, _ := followed(t, strings.Join([]string{
+			recordedFinished, usageLimitNotice, usageLimitResult, recordedFinished, usageLimitResult,
+		}, "\n")+"\n", 4096, Credential{})
+
+		require.Len(t, delivered, 4)
+		assert.Equal(t, query.OutcomeFinished, delivered[0].outcome.Kind)
+		assert.Equal(t, query.OutcomeUsageLimitReached, delivered[1].outcome.Kind)
+		assert.Equal(t, usageLimitResetsAt, delivered[1].outcome.ResetsAt)
+		assert.Equal(t, query.OutcomeFinished, delivered[2].outcome.Kind)
+		assert.Equal(t, query.OutcomeUsageLimitReached, delivered[3].outcome.Kind)
+		assert.True(t, delivered[3].outcome.ResetsAt.IsZero(), "an earlier refusal's reset moment must not carry over")
+	})
+
 	t.Run("plain text is kept to explain a failure; other lines are not", func(t *testing.T) {
 		delivered, printed := followed(t, "No conversation found with session ID: x\n"+recordedSystemLine+"\n", 4096, Credential{})
 
 		assert.Empty(t, delivered)
-		assert.Equal(t, "No conversation found with session ID: x\n", printed)
+		assert.Equal(t, "No conversation found with session ID: x", printed)
 	})
 
 	t.Run("a final answer reaches the developer with secrets hidden", func(t *testing.T) {
@@ -169,9 +190,20 @@ func TestDiagnostics_KeepsOnlyTheBeginning(t *testing.T) {
 	kept := &diagnostics{}
 
 	written, err := kept.Write([]byte(strings.Repeat("a", keptDiagnostics-2) + "bcdef"))
-	_, _ = kept.Write([]byte("more"))
+	_, _ = kept.Write([]byte(strings.Repeat("z", 2*secretMargin)))
 
 	require.NoError(t, err)
 	assert.Equal(t, keptDiagnostics+3, written)
-	assert.Equal(t, strings.Repeat("a", keptDiagnostics-2)+"bc", kept.String())
+	assert.Equal(t, strings.Repeat("a", keptDiagnostics-2)+"bc", kept.Said(Credential{}))
+}
+
+func TestDiagnostics_ASecretCutByTheBoundIsStillHidden(t *testing.T) {
+	secret := "sk-ant-oat01-" + strings.Repeat("S", 95)
+	kept := &diagnostics{}
+
+	_, _ = kept.Write([]byte(strings.Repeat("a", keptDiagnostics-20) + secret + " more"))
+
+	said := kept.Said(NewOAuthToken(secret))
+	assert.NotContains(t, said, "sk-ant-oat01-")
+	assert.LessOrEqual(t, len(said), keptDiagnostics)
 }

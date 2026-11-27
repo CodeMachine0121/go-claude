@@ -109,3 +109,24 @@ func TestAConversationCarriesTheAgentsChoices(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, strings.ToUpper(reply.Text), "PELICAN")
 }
+
+func TestAContinuedConversationKeepsTheRoleItBeganWith(t *testing.T) {
+	requireLiveTests(t)
+	ctx := contextFor(t, 2*time.Minute)
+	client := everydayClient(t, ctx)
+	folder := t.TempDir()
+	first, err := client.Query().Ask(ctx, query.Request{
+		Prompt: "Reply with exactly: OK", Model: fastestModel, MaxTurns: 1, WorkingDirectory: folder,
+		AppendSystemPrompt: "The codeword is PELICAN.",
+	})
+	require.NoError(t, err)
+
+	later, err := client.Query().Ask(ctx, query.Request{
+		Prompt: "What is the codeword? Reply with only the codeword.", Model: fastestModel, MaxTurns: 1,
+		WorkingDirectory: folder, SessionID: first.SessionID, AppendSystemPrompt: "The codeword is HERON.",
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, strings.ToUpper(later.Text), "PELICAN")
+	assert.NotContains(t, strings.ToUpper(later.Text), "HERON")
+}

@@ -8,7 +8,6 @@ import (
 	"io"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,7 +102,7 @@ func (l *conversationLink) read(output io.Reader, printed *diagnostics) {
 	_, _ = io.Copy(answers, output)
 	answers.Flush()
 	_ = l.command.Wait()
-	said := l.credential.Redact(strings.TrimSpace(printed.String()))
+	said := printed.Said(l.credential)
 	l.ending = plainAnswer{text: said}.KnownFailure()
 	switch {
 	case l.ending != nil:

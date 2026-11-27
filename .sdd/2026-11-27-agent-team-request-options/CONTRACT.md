@@ -1,0 +1,102 @@
+# Contract Traceability Matrix — 2026-11-27-agent-team-request-options
+
+Contract: PRD.md (v1.0, Finalized)
+Design map: ARCH.md
+Implementation: `query/` (dto.go, conversation.go, domain.go, vo.go, errors.go, usecase.go), `internal/infrastructure/claudecode/` (answer_stream.go, plain_answer.go, query_command.go, result_payload.go, claude_code_proxy.go, conversation_link.go)
+Oracle: Acceptance Criteria (30 clauses: 16 AC, 10 BR incl. the two Section 4 edge cases as BR-9/BR-10, 4 NFR)
+Audit date: 2026-11-27 · static audit · mapped unit tests run as corroboration (`go test ./query/ -run 'UsageLimit|TestUseCase_Open|TestUseCase_Ask$|Failures'`, `go test ./internal/infrastructure/claudecode/ -run 'AnswerStream|ToVo|QueryCommand|ConversationCommand|PlainAnswer|Diagnostics'`, both green) · integration tests not run (live ones spend usage)
+
+## Clauses
+
+The `Spec-expected` column holds the business-observable oracle from Phase 2 (written from PRD.md before any code was opened). `Test audit` / `Code audit` are Claude's shadow verdict, recorded before Jev ran. `Jev test` / `Jev code`, `Status` and `Route` are copied as returned by `jev_audit.py`. Where the shadow disagrees with Jev, the Notes section gives the evidence.
+
+| ID | Clause | Spec-expected (oracle) | Impl | Test | Test audit | Code audit | Jev test | Jev code | Status | Route |
+|----|--------|------------------------|------|------|------------|------------|----------|----------|--------|-------|
+| AC-1 | A one-shot request refused by the usage limit reports the reset moment (15:00 UTC 27 Nov 2026) | Request fails as usage limit reached; failure states 15:00 UTC 27 Nov 2026 | answer_stream.go:129-139, 119-127; result_payload.go:68-69; query/domain.go:61-69; query/errors.go:97-103 | answer_stream_test.go:68-84; query/usecase_test.go:228-238 | asserts-oracle | produces-oracle | asserts-oracle 0.96 | produces-oracle 0.77 | ✅ conforms | recheck (mid confidence) |
+| AC-2 | No reset moment is invented when Claude Code states none | Fails as usage limit reached; no reset moment given | answer_stream.go:80,125; query/errors.go:98-100 | answer_stream_test.go:85-89; query/usecase_test.go:240-244, 143-147 | asserts-oracle | produces-oracle | asserts-oracle 0.73 | produces-oracle 0.72 | ✅ conforms | recheck (mid confidence) |
+| AC-3 | A conversation message refused by the usage limit leaves the conversation open | That message fails as usage limit reached with reset 15:00 UTC 27 Nov 2026; next message is sent and answered | query/conversation.go:116-144; conversation_link.go:101-104, 155-157 | query/conversation_test.go:385-408 | asserts-oracle | produces-oracle | asserts-oracle 0.81 | produces-oracle 0.20 | ✅ conforms | escalate (low confidence) |
+| AC-4 | Another problem is never mistaken for the usage limit (unavailable model) | Fails as "Claude reported a problem", not as usage limit reached | result_payload.go:68-81 | result_payload_test.go:22-24, 59-66; query/usecase_test.go:125-129 | asserts-oracle | produces-oracle | asserts-oracle 1.00 | produces-oracle 0.80 | ✅ conforms | recheck (mid confidence) |
+| AC-5 | Usage close to the limit is not a failure | Claude's final reply is returned | answer_stream.go:137-138; result_payload.go:61 | answer_stream_test.go:95-99 | asserts-oracle | produces-oracle | asserts-oracle 0.87 | produces-oracle 0.59 | ✅ conforms | escalate (low confidence) |
+| AC-6 | Only the listed outside services are used (empty list + only-listed) | Claude connects to no outside service | query_command.go:40-45 | query_command_test.go:45-63; test/agent_options_test.go:75-93 (live) | asserts-oracle | produces-oracle | asserts-oracle 0.85 | produces-oracle 0.35 | ✅ conforms | escalate (low confidence) |
+| AC-7 | Listed services join the person's own | Listed services and the person's own are both available | query_command.go:40-45 (strict flag omitted) | query_command_test.go:64-69 | asserts-oracle | produces-oracle | asserts-oracle 0.40 | produces-oracle 0.80 | ✅ conforms | escalate (low confidence) |
+| AC-8 | A list that cannot be found is refused before starting (request or conversation) | Refused as invalid outside-service list before Claude Code starts, for Ask and Open | query_command.go:73-87; claude_code_proxy.go:120-122, 140-142 | query_command_test.go:131-134; query/conversation_test.go:56-64; test/agent_options_test.go:26-41 | asserts-oracle | produces-oracle | asserts-oracle 0.97 | produces-oracle 0.84 | ✅ conforms | recheck (mid confidence) |
+| AC-9 | A list that cannot be read fails | Request fails as invalid outside-service list | plain_answer.go:23-24; claude_code_proxy.go:130-133; conversation_link.go:106-107 | plain_answer_test.go:30-35; test/agent_options_test.go:43-59 | asserts-oracle | produces-oracle | asserts-oracle 0.53 | not-implemented 0.31 | ❌ gap | escalate (disagree) |
+| AC-10 | A list named by its place in the project is found in the work folder ("tools.json") | The tools.json inside the work folder is used | query_command.go:59-71 | query_command_test.go:64-70, 125 | asserts-oracle | produces-oracle | asserts-oracle 0.93 | produces-oracle 0.97 | ✅ conforms | accept |
+| AC-11 | Forbidden actions are unavailable (edit, write) | Claude has no way to edit or write files | query_command.go:37-39 | query_command_test.go:45-58; test/agent_options_test.go:75-93 (live) | asserts-oracle | produces-oracle | asserts-oracle 0.95 | produces-oracle 0.91 | ✅ conforms | accept |
+| AC-12 | Nothing forbidden keeps every action | Edit/write still available; nothing withheld by the request | query_command.go:37 | query_command_test.go:20-44 | asserts-oracle | produces-oracle | asserts-oracle 0.67 | produces-oracle 0.99 | ✅ conforms | recheck (mid confidence) |
+| AC-13 | Role instructions are followed ("The codeword is PELICAN.") | Final reply is PELICAN | query_command.go:46-49 | test/agent_options_test.go:61-73 (live); query_command_test.go:45-58 | asserts-oracle | produces-oracle | shallow 0.33 | unclear 0.48 | ❔ unclear | escalate (disagree) |
+| AC-14 | No role instructions keeps the usual instructions | Reply is not PELICAN; no role instructions handed to Claude | query_command.go:46 | query_command_test.go:20-44 | asserts-oracle | produces-oracle | asserts-oracle 0.27 | produces-oracle 0.85 | ✅ conforms | escalate (low confidence) |
+| AC-15 | A continued conversation keeps the role it began with (A, continued with B) | Claude keeps following A | query_command.go:46-52 (B still passed with --resume); query/dto.go:33-36 (godoc) | — | no-test | unclear | no-test 1.00 | produces-oracle 0.48 | 🟡 partial | escalate (disagree) |
+| AC-16 | A conversation carries every choice | Every message is answered under lists, only-listed mode, forbidden actions and role | query/conversation.go:44-54; query_command.go:95-98 | query_command_test.go:90-102; query/conversation_test.go:23-45; test/agent_options_test.go:95-111 (live) | asserts-oracle | produces-oracle | asserts-oracle 0.53 | unclear 0.39 | ❔ unclear | escalate (disagree) |
+| BR-1 | "Usage limit reached" is recognised from Claude Code's own statement of the cause, never guessed | Only Claude Code's explicit cause makes it a usage limit; a throttle is a problem | result_payload.go:68-75 | result_payload_test.go:96-135 | asserts-oracle | produces-oracle | asserts-oracle 0.87 | produces-oracle 0.33 | ✅ conforms | escalate (low confidence) |
+| BR-2 | The reset moment is the one Claude Code states for the refused request; when it states none, none is given | Reset moment comes from the refused request only; none when that request states none | answer_stream.go:80, 125, 135-136 | answer_stream_test.go:60-117 (single request only) | shallow | diverges | asserts-oracle 0.91 | produces-oracle 0.48 | ✅ conforms | escalate (disagree) |
+| BR-3 | The usage-limit failure keeps the conversation reference, rounds and cost | Failure carries conversation, rounds, cost | query/domain.go:61-69 | query/usecase_test.go:228-238; query/conversation_test.go:395-399 | asserts-oracle | produces-oracle | asserts-oracle 0.97 | produces-oracle 0.99 | ✅ conforms | accept |
+| BR-4 | A conversation stays open after a usage-limit failure | Next message can be sent | query/conversation.go:136-144 | query/conversation_test.go:385-408 | asserts-oracle | produces-oracle | asserts-oracle 0.89 | produces-oracle 0.89 | ✅ conforms | accept |
+| BR-5 | Lists named by their place in the project are found from the work folder (current folder when none) | Relative list resolved from work folder, else program's current folder | query_command.go:59-71 | query_command_test.go:64-70, 124-126 | asserts-oracle | produces-oracle | asserts-oracle 0.67 | produces-oracle 0.64 | ✅ conforms | recheck (mid confidence) |
+| BR-6 | Missing lists are refused before start; unreadable lists fail as the same failure | Missing → refused pre-start; unreadable → same invalid-list failure | query_command.go:81-85; plain_answer.go:23-24 | query_command_test.go:113-163; plain_answer_test.go:12-51 | asserts-oracle | produces-oracle | asserts-oracle 0.92 | produces-oracle 0.68 | ✅ conforms | recheck (mid confidence) |
+| BR-7 | Empty choices are not passed on; existing behaviour is unchanged | No flag for an empty choice; old programs behave the same | query_command.go:37-49 | query_command_test.go:14-111 | asserts-oracle | produces-oracle | asserts-oracle 0.88 | produces-oracle 0.97 | ✅ conforms | accept |
+| BR-8 | Handed-over secrets stay hidden in every failure | No failure text contains a handed-over secret | answer_stream.go:122, 126; result_payload.go:85-89; claude_code_proxy.go:130; conversation_link.go:106 | answer_stream_test.go:149-165 | asserts-oracle | produces-oracle | asserts-oracle 0.32 | produces-oracle 0.60 | ✅ conforms | escalate (low confidence) |
+| BR-9 | Edge: a usage limit that appears mid-conversation after earlier replies | That message fails as usage limit reached; earlier replies unaffected | answer_stream.go:119-127; conversation_link.go:101-104 | — | no-test | produces-oracle | no-test 1.00 | produces-oracle 0.71 | 🟡 partial | recheck (mid confidence) |
+| BR-10 | Edge: usage-limit notices that are only warnings are ignored | Warning notices change nothing; reply returned | answer_stream.go:137-138 | answer_stream_test.go:95-99 | asserts-oracle | produces-oracle | asserts-oracle 0.92 | produces-oracle 0.69 | ✅ conforms | recheck (mid confidence) |
+| NFR-1 | Performance: no extra Claude Code start; one-shot answers read as they arrive without keeping the whole transcript | One start; answers streamed; transcript not retained | claude_code_proxy.go:108-135, 188-190; answer_stream.go:87-108 | answer_stream_test.go:119-177 | shallow | produces-oracle | asserts-oracle 0.39 | produces-oracle 0.75 | ✅ conforms | escalate (disagree) |
+| NFR-2 | Security: secrets never appear in failures; nothing is logged | No secret in failures; no logging | (as BR-8); no `log`/`slog` in production code | answer_stream_test.go:149-165 | asserts-oracle | produces-oracle | asserts-oracle 0.71 | produces-oracle 0.25 | ✅ conforms | escalate (low confidence) |
+| NFR-3 | Compatibility: Claude Code 2.1.332+; older usage-limit wording tolerated | Older "usage limit reached\|epoch" wording still recognised | result_payload.go:33-35, 70-75 | result_payload_test.go:107-125 | asserts-oracle | produces-oracle | asserts-oracle 0.91 | produces-oracle 0.84 | ✅ conforms | recheck (mid confidence) |
+| NFR-4 | Dependencies: standard library only in production code | Production code imports only the standard library | go.mod:5 (testify used only in `_test.go`) | — | no-test | produces-oracle | no-test 1.00 | produces-oracle 0.53 | 🟡 partial | escalate (low confidence) |
+
+### Notes (shadow vs Jev, rechecks)
+
+- **BR-2 (shadow 🔴 violation, Jev ✅).** `answerStream.resetsAt` is set by a rejected notice (answer_stream.go:135-136) and is cleared only by an `allowed`/`allowed_warning` notice (137-138); it is **never cleared after a final answer is delivered** (125-126). A conversation reuses one `answerStream` for every message (conversation_link.go:102), so a message refused with no reset statement of its own reports the reset moment stated for an *earlier* message (possibly already in the past). A rejected notice with `resetsAt` 0 (135) also leaves the old value in place. One-shot requests are unaffected (one answer per stream). Whether this bites depends on Claude Code emitting no fresh `rate_limit_event` for the later request; the spec does not allow carrying it over. The existing tests feed a single request per stream, so they would pass either way (shallow). Fix: reset `s.resetsAt = time.Time{}` after each `deliver` of a `result` line.
+- **AC-9 (Jev gap 0.31).** Recheck: the unreadable-list path exists — Claude Code's "Invalid MCP configuration" text (recorded in plain_answer_test.go:30-35) becomes `ErrInvalidMCPConfiguration` in `plainAnswer.KnownFailure` (plain_answer.go:23-24), used by `Ask` when no answer arrived (claude_code_proxy.go:127-133) and by the conversation ending (conversation_link.go:106-107). The integration check `TestAnUnreadableOutsideServiceListFails` is not live-gated and costs no usage. Shadow stands at conforms; Jev's low-confidence pick looks wrong.
+- **AC-13 (Jev shallow/unclear).** The live test asserts `Contains(upper(reply), "PELICAN")` rather than equality: slightly weaker than the oracle but reasonable for model output. Code passes `--append-system-prompt=<text>`; the outcome depends on the model.
+- **AC-15.** No test. The library still passes role instructions B together with `--resume` (query_command.go:46-52); that Claude Code ignores B is asserted only by the PRD appendix and the godoc, never checked. If Claude Code applies `--append-system-prompt` per invocation (it is not obviously stored with the session), Claude would follow B and the clause would be violated. Needs a live check.
+- **AC-16 (Jev unclear).** `conversationCommand.arguments` passes all four choices to the single long-lived process, so every message shares them. The live check sends one message and verifies only the role; lists and forbidden tools in a conversation are only checked at argument level.
+- **NFR-1 (shadow shallow).** No test pins "the transcript is not retained" — the answer-stream tests check delivery and plain-text bounding, not that non-result lines are dropped from memory. By reading: only `pending` (the unfinished line) and ≤4096 bytes of plain text are kept, but one very long line (e.g. a large tool result in `--verbose` output) is buffered whole and decoded whole (answer_stream.go:89, 114-115).
+- **Recorded vs synthesised usage-limit lines.** answer_stream_test.go:23-38 states the refusal lines follow Claude Code 2.1.332's documented schema rather than a captured refusal (the allowed notice and system line are recorded). This is a reasonable stand-in because a refusal cannot be produced on demand, but testing.md asks for recorded real output, and the whole feature hinges on the field names `api_error` (top level of the `result` line), `rate_limit_info.status/resetsAt` and `api_error_params.rate_limit_info`. If a real refusal places them elsewhere, every usage limit silently becomes "Claude reported a problem" and no test notices. Replace the lines with a captured refusal at the first opportunity.
+- **Misclassification.** Keyed on `is_error && api_error == "usage_limit_reached"` or the older `"Claude AI usage limit reached"` prefix on an error result; a plain 429 or throttle stays a problem (result_payload_test.go:126-135). No guessing from text or status code was found.
+- **Argument injection.** `--append-system-prompt=` joined form; MCP paths made absolute (never start with `-`); tool lists joined into one argument after their flag. No injection path found. A tool rule that itself contains a comma (e.g. `Bash(git add,commit)`) is split by the join (query_command.go:38).
+
+## Orphans (code with no clause)
+
+| Code | Description | Verdict |
+|------|-------------|---------|
+| claude_code_proxy.go:130-133 / plain_answer.go:22 | `Ask` for an unknown conversation now reports `conversation not found: claude code said "..."` instead of `conversation not found: "<session id>"`; `errors.Is` unchanged, text changed | undocumented (touches BR-7 "existing behaviour unchanged") |
+| query/errors.go:89-90 | `UsageLimitError.Explanation` exposes Claude Code's refusal text (redacted) | undocumented, benign |
+| query_command.go:77 (via `check`) | `Open` and `Ask` now share one pre-start check covering both the work folder and lists | undocumented refactor, behaviour-preserving |
+
+No out-of-scope item (automatic waiting/retrying, lists as words, replacing the system prompt, reporting remaining usage) is implemented.
+
+## Summary
+
+- Conforms: 24/30 clauses ✅ (80%)
+- Violations: none per Jev; **shadow violation on BR-2** (stale reset moment across conversation messages) — see Notes
+- Mis-asserted: none
+- Partial: AC-15, BR-9, NFR-4
+- Gaps: AC-9 (Jev; shadow says implemented — see Notes)
+- Unclear: AC-13, AC-16
+- Orphans: 3
+- Jev: ran on 30 clauses
+- Needs James: AC-3 (low confidence), AC-5 (low confidence), AC-6 (low confidence), AC-7 (low confidence), AC-9 (disagree), AC-13 (disagree), AC-14 (low confidence), AC-15 (disagree), AC-16 (disagree), BR-1 (low confidence), BR-2 (disagree — shadow violation), BR-8 (low confidence), NFR-1 (disagree), NFR-2 (low confidence), NFR-4 (low confidence)
+
+### Concrete defects found
+
+1. answer_stream.go:125-126 — reset moment never cleared after a final answer; a later conversation refusal can report an earlier message's (stale) reset. Fix: clear `s.resetsAt` after delivering each result; add a two-message answerStream test.
+2. answer_stream.go:135 — a `rejected` notice without `resetsAt` keeps an older value. Fix: set zero in that case.
+3. answer_stream.go:33-36 with claude_code_proxy.go:130 / conversation_link.go:106 — plain text is truncated to 4096 bytes before redaction, so a secret straddling the cut leaves its prefix in the error; in conversations stderr and stdout share one `diagnostics`, so interleaved chunks can also split a secret. Fix: redact before truncating (give `diagnostics` the credential) or drop the last `len(secret)-1` kept bytes.
+4. answer_stream.go:89 — a single line is buffered without bound. Fix: cap `pending`, skipping oversized lines that are not `result` lines.
+5. answer_stream_test.go:23-38 — usage-limit lines synthesised, not recorded. Fix: replace with a captured 2.1.332 refusal when one occurs.
+6. AC-15 unverified — role B is still passed on `--resume`. Fix: add a live check, or omit `--append-system-prompt` when `SessionID` is set if Claude Code is found to honour it.
+
+## Resolution (after the audit)
+
+| Finding | Decision | Change |
+| :--- | :--- | :--- |
+| BR-2 — a reset moment could carry over to a later message of a conversation | Fixed | `answerStream` forgets the reset moment after every final answer; test "a refusal after earlier replies carries only its own reset moment" |
+| A rejected notice without a reset moment kept an older one | Fixed | Any notice other than "rejected with a reset" withdraws it; test added |
+| A secret cut by the diagnostics bound could leave its beginning in a failure | Fixed | `diagnostics` keeps a margin beyond the bound and `Said(credential)` hides secrets before cutting; test added |
+| AC-15 — continued conversation keeps its role, unverified | Fixed | Live integration test `TestAContinuedConversationKeepsTheRoleItBeganWith` (passes against Claude Code 2.1.332) |
+| BR-9 — usage limit after earlier replies, untested | Fixed | Same stream test as BR-2 |
+| AC-9 gap | Not a gap | `plainAnswer.KnownFailure` recognises "Invalid MCP configuration"; covered by `TestPlainAnswer_KnownFailure` and `TestAnUnreadableOutsideServiceListFails` |
+| NFR-1 — one very long line is held whole | Accepted risk | Only the current line is held; nothing else is kept. Capping would risk dropping a long final reply |
+| Usage-limit lines are reconstructed from Claude Code's documented schema, not recorded | Accepted, noted in the test | Replace with a recorded refusal when one is captured |
+| Orphan — "conversation not found" now quotes Claude Code's words (which contain the session ID) | Accepted | `errors.Is(err, query.ErrConversationNotFound)` unchanged |
+| A tool rule containing a comma is split | Accepted (pre-existing for `AllowedTools`) | — |

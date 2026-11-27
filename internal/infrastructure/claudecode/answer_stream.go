@@ -10,8 +10,13 @@ import (
 	"github.com/CodeMachine0121/go-claude/query"
 )
 
-// keptDiagnostics bounds the text kept to explain why Claude Code stopped.
-const keptDiagnostics = 4096
+const (
+	// keptDiagnostics bounds the text kept to explain why Claude Code stopped.
+	keptDiagnostics = 4096
+	// secretMargin is kept beyond keptDiagnostics so that a secret cut by the
+	// bound is still whole, and hidden, before the text is cut to size.
+	secretMargin = 1024
+)
 
 // answer is one final answer: decoded, or why it could not be.
 type answer struct {
@@ -20,7 +25,7 @@ type answer struct {
 }
 
 // diagnostics keeps the beginning of what Claude Code printed outside its
-// answers, up to keptDiagnostics bytes, and drops the rest.
+// answers and drops the rest.
 type diagnostics struct {
 	mutex sync.Mutex
 	kept  bytes.Buffer
@@ -30,18 +35,20 @@ type diagnostics struct {
 func (d *diagnostics) Write(text []byte) (int, error) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	room := keptDiagnostics - d.kept.Len()
+	room := keptDiagnostics + secretMargin - d.kept.Len()
 	if room > 0 {
 		d.kept.Write(text[:min(room, len(text))])
 	}
 	return len(text), nil
 }
 
-// String is what was kept.
-func (d *diagnostics) String() string {
+// Said is what was kept, with the credential hidden first and then cut to
+// keptDiagnostics bytes, so no part of a secret survives the cut.
+func (d *diagnostics) Said(credential Credential) string {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	return d.kept.String()
+	said := credential.Redact(d.kept.String())
+	return strings.TrimSpace(said[:min(len(said), keptDiagnostics)])
 }
 
 // rateLimitInfo is Claude Code's account of the subscription's usage limit.
@@ -69,7 +76,8 @@ type streamLine struct {
 // answerStream reads Claude Code's answers as they are written, one JSON line
 // at a time: every final answer goes to deliver, text that is not JSON goes to
 // printed, and everything else is only followed for what it says about the
-// usage limit. Nothing else is kept, so a long piece of work costs no memory.
+// usage limit. Nothing else is kept, so a long piece of work costs no more
+// memory than its longest line.
 // A final answer refused by the usage limit carries the reset moment last
 // stated. Write is called by one writer at a time.
 type answerStream struct {
@@ -124,6 +132,8 @@ func (s *answerStream) follow(line []byte) {
 		}
 		payload.resetsAt = s.resetsAt
 		s.deliver(answer{outcome: payload.ToVo(s.credential)})
+		// A reset moment belongs to the refusal it was stated for, never to a later message.
+		s.resetsAt = time.Time{}
 		return
 	}
 	info := decoded.RateLimitInfo
@@ -134,7 +144,8 @@ func (s *answerStream) follow(line []byte) {
 	case info == nil:
 	case info.Status == "rejected" && info.ResetsAt > 0:
 		s.resetsAt = time.Unix(info.ResetsAt, 0).UTC()
-	case info.Status == "allowed" || info.Status == "allowed_warning":
+	default:
+		// Usage is allowed again, or refused without a stated reset.
 		s.resetsAt = time.Time{}
 	}
 }

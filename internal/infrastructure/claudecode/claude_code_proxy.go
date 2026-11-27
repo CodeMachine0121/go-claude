@@ -127,7 +127,7 @@ func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query
 	if answered {
 		return final.outcome, final.err
 	}
-	said := strings.TrimSpace(p.settings.Credential.Redact(printed.String()) + "\n" + run.said())
+	said := strings.TrimSpace(printed.Said(p.settings.Credential) + "\n" + run.said())
 	if failure := (plainAnswer{text: said}).KnownFailure(); failure != nil {
 		return query.OutcomeVo{}, failure
 	}
