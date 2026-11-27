@@ -51,9 +51,9 @@ func (d *diagnostics) Said(credential Credential) string {
 	return strings.TrimSpace(said[:min(len(said), keptDiagnostics)])
 }
 
-// rateLimitInfo is Claude Code's account of the subscription's usage limit.
+// usageLimitState is Claude Code's account of the subscription's usage limit.
 // Status is "allowed", "allowed_warning" or "rejected"; ResetsAt is in unix seconds.
-type rateLimitInfo struct {
+type usageLimitState struct {
 	Status   string `json:"status"`
 	ResetsAt int64  `json:"resetsAt"`
 }
@@ -61,7 +61,7 @@ type rateLimitInfo struct {
 // errorParameters are the details Claude Code adds to a reply that wraps a
 // refusal; a usage-limit refusal says which limit and when it resets.
 type errorParameters struct {
-	RateLimitInfo *rateLimitInfo `json:"rate_limit_info"`
+	UsageLimit *usageLimitState `json:"rate_limit_info"`
 }
 
 // streamLine is what matters in one answer line before the final answer: a
@@ -69,7 +69,7 @@ type errorParameters struct {
 // refusal carries api_error_params.
 type streamLine struct {
 	Type            string           `json:"type"`
-	RateLimitInfo   *rateLimitInfo   `json:"rate_limit_info"`
+	UsageLimit      *usageLimitState `json:"rate_limit_info"`
 	ErrorParameters *errorParameters `json:"api_error_params"`
 }
 
@@ -136,14 +136,14 @@ func (s *answerStream) follow(line []byte) {
 		s.resetsAt = time.Time{}
 		return
 	}
-	info := decoded.RateLimitInfo
-	if decoded.ErrorParameters != nil && decoded.ErrorParameters.RateLimitInfo != nil {
-		info = decoded.ErrorParameters.RateLimitInfo
+	limit := decoded.UsageLimit
+	if decoded.ErrorParameters != nil && decoded.ErrorParameters.UsageLimit != nil {
+		limit = decoded.ErrorParameters.UsageLimit
 	}
 	switch {
-	case info == nil:
-	case info.Status == "rejected" && info.ResetsAt > 0:
-		s.resetsAt = time.Unix(info.ResetsAt, 0).UTC()
+	case limit == nil:
+	case limit.Status == "rejected" && limit.ResetsAt > 0:
+		s.resetsAt = time.Unix(limit.ResetsAt, 0).UTC()
 	default:
 		// Usage is allowed again, or refused without a stated reset.
 		s.resetsAt = time.Time{}
