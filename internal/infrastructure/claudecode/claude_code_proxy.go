@@ -117,10 +117,7 @@ func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query
 			final, answered = last, true
 		}),
 	}
-	if err := ask.checkDirectory(); err != nil {
-		return query.OutcomeVo{}, err
-	}
-	if err := command.checkMCPConfigurations(); err != nil {
+	if err := command.check(); err != nil {
 		return query.OutcomeVo{}, err
 	}
 	run, err := p.execute(ctx, ask)
@@ -131,30 +128,19 @@ func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query
 		return final.outcome, final.err
 	}
 	said := strings.TrimSpace(p.settings.Credential.Redact(printed.String()) + "\n" + run.said())
-	switch {
-	case strings.Contains(said, "No conversation found"):
-		return query.OutcomeVo{}, fmt.Errorf("%w: %q", query.ErrConversationNotFound, request.SessionID)
-	case strings.Contains(said, invalidMCPConfigurationWording):
-		return query.OutcomeVo{}, fmt.Errorf("%w: claude code said %q", query.ErrInvalidMCPConfiguration, said)
-	default:
-		return query.OutcomeVo{}, &query.UnreadableReplyError{Output: said}
+	if failure := (plainAnswer{text: said}).KnownFailure(); failure != nil {
+		return query.OutcomeVo{}, failure
 	}
+	return query.OutcomeVo{}, &query.UnreadableReplyError{Output: said}
 }
-
-// invalidMCPConfigurationWording is how Claude Code refuses an MCP
-// configuration file it cannot find or read, before running anything.
-const invalidMCPConfigurationWording = "Invalid MCP configuration"
 
 // Open starts a conversation: one Claude Code process that answers messages
 // until it is closed. The conversation outlives ctx, which only bounds starting.
 func (p *ClaudeCodeProxy) Open(ctx context.Context, request query.QueryVo) (query.IConversationLink, error) {
+	if err := (queryCommand{query: request}).check(); err != nil {
+		return nil, err
+	}
 	open := invocation{arguments: conversationCommand{query: request}.arguments(), directory: request.WorkingDirectory}
-	if err := open.checkDirectory(); err != nil {
-		return nil, err
-	}
-	if err := (queryCommand{query: request}).checkMCPConfigurations(); err != nil {
-		return nil, err
-	}
 	lifetime, stop := context.WithCancel(context.WithoutCancel(ctx))
 	command, err := p.command(lifetime, open)
 	if err != nil {
@@ -182,17 +168,6 @@ type invocation struct {
 	// of keeping it; execution.output is then empty. Supplied secrets are not
 	// hidden from it.
 	output io.Writer
-}
-
-// checkDirectory refuses a work folder that does not exist before anything runs.
-func (run invocation) checkDirectory() error {
-	if run.directory == "" {
-		return nil
-	}
-	if info, err := os.Stat(run.directory); err != nil || !info.IsDir() {
-		return fmt.Errorf("%w: %q", query.ErrWorkFolderMissing, run.directory)
-	}
-	return nil
 }
 
 // execute runs Claude Code once. It fails only when the run could not happen or

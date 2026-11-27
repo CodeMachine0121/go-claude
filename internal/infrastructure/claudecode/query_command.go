@@ -70,9 +70,14 @@ func (c queryCommand) mcpConfigurationPaths() []string {
 	return paths
 }
 
-// checkMCPConfigurations refuses MCP configuration files that are not there
+// check refuses a work folder or MCP configuration files that are not there,
 // before anything runs.
-func (c queryCommand) checkMCPConfigurations() error {
+func (c queryCommand) check() error {
+	if directory := c.query.WorkingDirectory; directory != "" {
+		if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+			return fmt.Errorf("%w: %q", query.ErrWorkFolderMissing, directory)
+		}
+	}
 	for _, path := range c.mcpConfigurationPaths() {
 		if info, err := os.Stat(path); err != nil || info.IsDir() {
 			return fmt.Errorf("%w: %q does not exist", query.ErrInvalidMCPConfiguration, path)

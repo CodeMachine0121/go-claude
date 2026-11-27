@@ -47,7 +47,7 @@
 | :--- | :--- | :--- | :--- |
 | `answerStream` (`newAnswerStream(credential, printed, deliver)`, `Write`, `Flush`) | Deep module (`io.Writer`) | Hides line splitting, partial lines, non-JSON diagnostics, usage-limit notices (`rate_limit_event` status `rejected` / `allowed`, assistant `api_error_params.rate_limit_info`) and final-answer decoding; callers only receive `answer{outcome, err}` | US-01, US-05 |
 | `streamLine` / `rateLimitInfo` | Wire decoders | The parts of a line that matter: type, rate-limit info, error params | US-01 |
-| `queryCommand.checkMCPConfigurations()` / `mcpConfigurationPaths()` | Command methods | Absolute list paths (relative ones from the work folder); refuse missing lists | US-02 |
+| `queryCommand.check()` / `mcpConfigurationPaths()` | Command methods | Absolute list paths (relative ones from the work folder); refuse a missing work folder or list before starting | US-02 |
 
 ---
 
@@ -72,7 +72,7 @@ sequenceDiagram
   participant S as answerStream
   participant C as claude -p (stream-json)
   U->>P: Ask / Open(QueryVo)
-  P->>P: checkDirectory, checkMCPConfigurations
+  P->>P: queryCommand.check (work folder, MCP files)
   P->>C: flags + prompt
   C-->>S: lines (assistant, rate_limit_event, result, plain text)
   S->>S: remember rejected reset; keep plain text
@@ -102,8 +102,8 @@ sequenceDiagram
 | US-01 Usage close to the limit is not a failure | `answerStream` ignores `allowed` / `allowed_warning`; `resultPayload.ToVo` |
 | US-02 Only the listed outside services are used | `queryCommand.choices` (`--mcp-config`, `--strict-mcp-config`) |
 | US-02 Listed services join the person's own | `queryCommand.choices` (no strict flag) |
-| US-02 A list that cannot be found is refused before starting | `queryCommand.checkMCPConfigurations`, `ClaudeCodeProxy.Ask/Open` |
-| US-02 A list that cannot be read fails | `ClaudeCodeProxy.Ask`, `conversationLink.read` ("Invalid MCP configuration") |
+| US-02 A list that cannot be found is refused before starting | `queryCommand.check`, `ClaudeCodeProxy.Ask/Open` |
+| US-02 A list that cannot be read fails | `plainAnswer.KnownFailure` used by `ClaudeCodeProxy.Ask` and `conversationLink.read` ("Invalid MCP configuration") |
 | US-02 A list named by its place in the project is found in the work folder | `queryCommand.mcpConfigurationPaths` |
 | US-03 Forbidden actions are unavailable | `queryCommand.choices` (`--disallowedTools`) |
 | US-03 Nothing forbidden keeps every action | `queryCommand.choices` (flag omitted) |

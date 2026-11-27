@@ -104,15 +104,13 @@ func (l *conversationLink) read(output io.Reader, printed *diagnostics) {
 	answers.Flush()
 	_ = l.command.Wait()
 	said := l.credential.Redact(strings.TrimSpace(printed.String()))
-	l.ending = query.ErrConversationEnded
-	if said != "" {
+	l.ending = plainAnswer{text: said}.KnownFailure()
+	switch {
+	case l.ending != nil:
+	case said != "":
 		l.ending = fmt.Errorf("%w: claude code said %q", query.ErrConversationEnded, said)
-	}
-	if strings.Contains(said, "No conversation found") {
-		l.ending = fmt.Errorf("%w: claude code said %q", query.ErrConversationNotFound, said)
-	}
-	if strings.Contains(said, invalidMCPConfigurationWording) {
-		l.ending = fmt.Errorf("%w: claude code said %q", query.ErrInvalidMCPConfiguration, said)
+	default:
+		l.ending = query.ErrConversationEnded
 	}
 	l.stop()
 	close(l.ended)

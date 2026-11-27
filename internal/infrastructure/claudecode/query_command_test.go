@@ -110,7 +110,7 @@ func TestConversationCommand_Arguments(t *testing.T) {
 	}
 }
 
-func TestQueryCommand_CheckMCPConfigurations(t *testing.T) {
+func TestQueryCommand_Check(t *testing.T) {
 	folder := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(folder, "tools.json"), []byte(`{"mcpServers":{}}`), 0o600))
 	current, err := os.Getwd()
@@ -133,6 +133,16 @@ func TestQueryCommand_CheckMCPConfigurations(t *testing.T) {
 			expectedError: query.ErrInvalidMCPConfiguration,
 		},
 		{
+			name:          "a work folder that does not exist is refused",
+			query:         query.QueryVo{WorkingDirectory: filepath.Join(folder, "missing")},
+			expectedError: query.ErrWorkFolderMissing,
+		},
+		{
+			name:          "a list is not a work folder",
+			query:         query.QueryVo{WorkingDirectory: filepath.Join(folder, "tools.json")},
+			expectedError: query.ErrWorkFolderMissing,
+		},
+		{
 			name:          "a folder is not a list",
 			query:         query.QueryVo{MCPConfigurationPaths: []string{folder}},
 			expectedError: query.ErrInvalidMCPConfiguration,
@@ -141,7 +151,7 @@ func TestQueryCommand_CheckMCPConfigurations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := queryCommand{query: tt.query}.checkMCPConfigurations()
+			err := queryCommand{query: tt.query}.check()
 
 			if tt.expectedError != nil {
 				assert.ErrorIs(t, err, tt.expectedError)
