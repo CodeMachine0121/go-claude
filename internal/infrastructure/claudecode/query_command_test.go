@@ -115,10 +115,9 @@ func TestConversationCommand_Arguments(t *testing.T) {
 func TestQueryCommand_Check(t *testing.T) {
 	folder := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(folder, "tools.json"), []byte(`{"mcpServers":{}}`), 0o600))
-	current, err := os.Getwd()
-	require.NoError(t, err)
-	fromCurrentFolder, err := filepath.Rel(current, filepath.Join(folder, "tools.json"))
-	require.NoError(t, err)
+	// Tests run in the package folder, so this file is there; a temporary
+	// folder can sit on another drive, which a relative path cannot reach.
+	fromCurrentFolder := "query_command_test.go"
 
 	tests := []struct {
 		name          string
