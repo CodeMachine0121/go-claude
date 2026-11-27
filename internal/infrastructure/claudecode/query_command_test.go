@@ -12,6 +12,7 @@ import (
 )
 
 func TestQueryCommand_Arguments(t *testing.T) {
+	team := filepath.Join(t.TempDir(), "team") // absolute on every platform
 	tests := []struct {
 		name     string
 		query    query.QueryVo
@@ -46,12 +47,12 @@ func TestQueryCommand_Arguments(t *testing.T) {
 			name: "outside services, forbidden tools and role instructions are passed on",
 			query: query.QueryVo{
 				Prompt: "hi", DisallowedTools: []string{"Edit", "Bash(git push:*)"},
-				MCPConfigurationPaths: []string{"/team/a.json", "/team/b.json"}, StrictMCPConfiguration: true,
+				MCPConfigurationPaths: []string{filepath.Join(team, "a.json"), filepath.Join(team, "b.json")}, StrictMCPConfiguration: true,
 				AppendSystemPrompt: "-You review code.",
 			},
 			expected: []string{
 				"--print", "--output-format", "stream-json", "--verbose",
-				"--disallowedTools", "Edit,Bash(git push:*)", "--mcp-config", "/team/a.json", "/team/b.json",
+				"--disallowedTools", "Edit,Bash(git push:*)", "--mcp-config", filepath.Join(team, "a.json"), filepath.Join(team, "b.json"),
 				"--strict-mcp-config", "--append-system-prompt=-You review code.",
 			},
 		},
@@ -62,9 +63,9 @@ func TestQueryCommand_Arguments(t *testing.T) {
 		},
 		{
 			name:  "a relative outside-service list is found from the work folder",
-			query: query.QueryVo{Prompt: "hi", WorkingDirectory: "/team/reviewer", MCPConfigurationPaths: []string{"tools.json"}},
+			query: query.QueryVo{Prompt: "hi", WorkingDirectory: filepath.Join(team, "reviewer"), MCPConfigurationPaths: []string{"tools.json"}},
 			expected: []string{
-				"--print", "--output-format", "stream-json", "--verbose", "--mcp-config", "/team/reviewer/tools.json",
+				"--print", "--output-format", "stream-json", "--verbose", "--mcp-config", filepath.Join(team, "reviewer", "tools.json"),
 			},
 		},
 	}
@@ -77,6 +78,7 @@ func TestQueryCommand_Arguments(t *testing.T) {
 }
 
 func TestConversationCommand_Arguments(t *testing.T) {
+	team := filepath.Join(t.TempDir(), "team")
 	tests := []struct {
 		name     string
 		query    query.QueryVo
@@ -91,13 +93,13 @@ func TestConversationCommand_Arguments(t *testing.T) {
 			name: "the same choices as one-shot requests are passed on",
 			query: query.QueryVo{
 				MaxTurns: 4, Model: "haiku", AllowedTools: []string{"Read"}, SessionID: "session-1",
-				DisallowedTools: []string{"Write"}, MCPConfigurationPaths: []string{"/team/a.json"},
+				DisallowedTools: []string{"Write"}, MCPConfigurationPaths: []string{filepath.Join(team, "a.json")},
 				StrictMCPConfiguration: true, AppendSystemPrompt: "You review code.",
 			},
 			expected: []string{
 				"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 				"--max-turns", "4", "--model", "haiku", "--allowedTools", "Read", "--disallowedTools", "Write",
-				"--mcp-config", "/team/a.json", "--strict-mcp-config", "--append-system-prompt=You review code.",
+				"--mcp-config", filepath.Join(team, "a.json"), "--strict-mcp-config", "--append-system-prompt=You review code.",
 				"--resume", "session-1",
 			},
 		},
