@@ -13,8 +13,10 @@ func NewUseCase(proxy iQueryProxy) *UseCase {
 }
 
 // Ask sends the request and returns Claude's final reply. It blocks until Claude
-// finishes, the round limit stops it (*RoundLimitError), Claude reports a
-// problem (*ProblemError, ErrNotSignedIn) or ctx ends.
+// finishes, the round limit stops it (*RoundLimitError), the subscription's
+// usage limit refuses it (*UsageLimitError), Claude reports a problem
+// (*ProblemError, ErrNotSignedIn) or ctx ends. A missing or unreadable MCP
+// configuration file fails with ErrInvalidMCPConfiguration.
 func (u *UseCase) Ask(ctx context.Context, request Request) (ResultDto, error) {
 	query, err := NewQueryDomain(request)
 	if err != nil {
@@ -28,7 +30,8 @@ func (u *UseCase) Ask(ctx context.Context, request Request) (ResultDto, error) {
 }
 
 // Open starts a conversation in which several messages can be sent. Close it
-// when done. It is refused with ErrNegativeMaxTurns or ErrWorkFolderMissing.
+// when done. It is refused with ErrNegativeMaxTurns, ErrWorkFolderMissing or,
+// for an MCP configuration file that does not exist, ErrInvalidMCPConfiguration.
 func (u *UseCase) Open(ctx context.Context, request ConversationRequest) (*Conversation, error) {
 	conversation, err := NewConversationDomain(request)
 	if err != nil {

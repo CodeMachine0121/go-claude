@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -51,6 +52,19 @@ func TestUseCase_Ask(t *testing.T) {
 			},
 			outcome:     OutcomeVo{Kind: OutcomeFinished, Text: "a.go", Turns: 2, SessionID: "session-3", Cost: cost(t, "0")},
 			expectedDto: ResultDto{Text: "a.go", Turns: 2, SessionID: "session-3", CostUSD: "0"},
+		},
+		{
+			name: "an agent's outside services, forbidden tools and role reach claude code",
+			request: Request{
+				Prompt: "Review the change", MCPConfigurationPaths: []string{"reviewer.json"}, StrictMCPConfiguration: true,
+				DisallowedTools: []string{"Edit", "Write"}, AppendSystemPrompt: "You are the reviewer.",
+			},
+			expectedQuery: QueryVo{
+				Prompt: "Review the change", MCPConfigurationPaths: []string{"reviewer.json"}, StrictMCPConfiguration: true,
+				DisallowedTools: []string{"Edit", "Write"}, AppendSystemPrompt: "You are the reviewer.",
+			},
+			outcome:     OutcomeVo{Kind: OutcomeFinished, Text: "Looks good", Turns: 1, SessionID: "session-5", Cost: cost(t, "0")},
+			expectedDto: ResultDto{Text: "Looks good", Turns: 1, SessionID: "session-5", CostUSD: "0"},
 		},
 	}
 
@@ -120,6 +134,18 @@ func TestUseCase_Ask_Failures(t *testing.T) {
 			expectedText:  "the work folder does not exist",
 		},
 		{
+			name:          "an outside-service list that cannot be found or read",
+			proxyError:    fmt.Errorf("%w: %q does not exist", ErrInvalidMCPConfiguration, "/team/missing.json"),
+			expectedError: ErrInvalidMCPConfiguration,
+			expectedText:  `invalid MCP configuration: "/team/missing.json" does not exist`,
+		},
+		{
+			name:          "a usage limit whose reset claude code did not state",
+			outcome:       OutcomeVo{Kind: OutcomeUsageLimitReached},
+			expectedError: ErrUsageLimitReached,
+			expectedText:  "usage limit reached",
+		},
+		{
 			name:          "an unknown conversation",
 			proxyError:    ErrConversationNotFound,
 			expectedError: ErrConversationNotFound,
@@ -186,6 +212,74 @@ func TestUseCase_Ask_DoesNotShareTheCallersToolList(t *testing.T) {
 	})
 
 	_, err := NewUseCase(proxy).Ask(context.Background(), Request{Prompt: "hi", AllowedTools: tools})
+
+	require.NoError(t, err)
+}
+
+func TestUseCase_Ask_UsageLimitReached(t *testing.T) {
+	resetsAt := time.Date(2026, time.November, 27, 15, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name          string
+		outcome       OutcomeVo
+		expectedError UsageLimitError
+		expectedText  string
+	}{
+		{
+			name: "the reset moment claude code stated is reported",
+			outcome: OutcomeVo{
+				Kind: OutcomeUsageLimitReached, ResetsAt: resetsAt, Turns: 1, SessionID: "session-6",
+				Explanation: "You've hit your session limit · resets 3pm (UTC)", Cost: cost(t, "0.002"),
+			},
+			expectedError: UsageLimitError{
+				ResetsAt: resetsAt, Explanation: "You've hit your session limit · resets 3pm (UTC)",
+				Turns: 1, CostUSD: "0.002", CostNanodollars: 2_000_000, SessionID: "session-6",
+			},
+			expectedText: "usage limit reached, resets at 2026-11-27T15:00:00Z",
+		},
+		{
+			name:          "no reset moment is invented when none was stated",
+			outcome:       OutcomeVo{Kind: OutcomeUsageLimitReached, SessionID: "session-7", Cost: cost(t, "0")},
+			expectedError: UsageLimitError{CostUSD: "0", SessionID: "session-7"},
+			expectedText:  "usage limit reached",
+		},
+		{
+			name: "the reset moment reads in UTC whatever zone it came in",
+			outcome: OutcomeVo{
+				Kind: OutcomeUsageLimitReached, ResetsAt: resetsAt.In(time.FixedZone("UTC+8", 8*60*60)), Cost: cost(t, "0"),
+			},
+			expectedError: UsageLimitError{ResetsAt: resetsAt.In(time.FixedZone("UTC+8", 8*60*60)), CostUSD: "0"},
+			expectedText:  "usage limit reached, resets at 2026-11-27T15:00:00Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proxy := new(mockQueryProxy)
+			proxy.On("Ask", mock.Anything, QueryVo{Prompt: "hi"}).Return(tt.outcome, nil)
+
+			dto, err := NewUseCase(proxy).Ask(context.Background(), Request{Prompt: "hi"})
+
+			require.ErrorIs(t, err, ErrUsageLimitReached)
+			assert.NotErrorIs(t, err, ErrClaudeReportedProblem)
+			var limit *UsageLimitError
+			require.ErrorAs(t, err, &limit)
+			assert.Equal(t, tt.expectedError, *limit)
+			assert.Equal(t, tt.expectedText, err.Error())
+			assert.Equal(t, ResultDto{}, dto)
+		})
+	}
+}
+
+func TestUseCase_Ask_DoesNotShareTheCallersLists(t *testing.T) {
+	forbidden, lists := []string{"Edit"}, []string{"a.json"}
+	proxy := new(mockQueryProxy)
+	proxy.On("Ask", mock.Anything, mock.Anything).Return(OutcomeVo{Kind: OutcomeFinished}, nil).Run(func(args mock.Arguments) {
+		forbidden[0], lists[0] = "Read", "b.json"
+		assert.Equal(t, []string{"Edit"}, args.Get(1).(QueryVo).DisallowedTools)
+		assert.Equal(t, []string{"a.json"}, args.Get(1).(QueryVo).MCPConfigurationPaths)
+	})
+
+	_, err := NewUseCase(proxy).Ask(context.Background(), Request{Prompt: "hi", DisallowedTools: forbidden, MCPConfigurationPaths: lists})
 
 	require.NoError(t, err)
 }

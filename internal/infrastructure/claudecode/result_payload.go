@@ -3,7 +3,9 @@ package claudecode
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/CodeMachine0121/go-claude/query"
 )
@@ -19,9 +21,18 @@ type resultPayload struct {
 	SessionID     string      `json:"session_id"`
 	TotalCostUSD  json.Number `json:"total_cost_usd"`
 	Ending        string      `json:"terminal_reason"`
+	// RefusalKind names the cause of a refusal, such as "usage_limit_reached".
+	RefusalKind string `json:"api_error"`
 
 	cost query.CostVo
+	// resetsAt is when a reached usage limit resets, as stated before this
+	// answer; zero when it was not stated.
+	resetsAt time.Time
 }
+
+// earlierUsageLimitWording is how older Claude Code releases worded a usage
+// limit refusal, followed by "|" and the reset moment in unix seconds.
+const earlierUsageLimitWording = "Claude AI usage limit reached"
 
 var errNotAResult = errors.New("answer is not a final result")
 
@@ -48,11 +59,20 @@ func newResultPayload(data []byte) (resultPayload, error) {
 func (p resultPayload) ToVo(credential Credential) query.OutcomeVo {
 	explanation := strings.TrimSpace(strings.Join(append([]string{p.Result}, p.Errors...), "\n"))
 	kind := query.OutcomeFinished
+	resetsAt := time.Time{}
 	switch {
 	case p.Subtype == "error_max_turns":
 		kind = query.OutcomeRoundLimitReached
 	case p.Ending == "aborted_streaming":
 		kind = query.OutcomeInterrupted
+	case p.IsError && p.RefusalKind == "usage_limit_reached":
+		kind, resetsAt = query.OutcomeUsageLimitReached, p.resetsAt
+	case p.IsError && strings.HasPrefix(p.Result, earlierUsageLimitWording):
+		kind = query.OutcomeUsageLimitReached
+		_, stated, _ := strings.Cut(p.Result, "|")
+		if seconds, err := strconv.ParseInt(strings.TrimSpace(stated), 10, 64); err == nil && seconds > 0 {
+			resetsAt = time.Unix(seconds, 0).UTC()
+		}
 	case p.IsError && strings.Contains(explanation, "No conversation found"):
 		kind = query.OutcomeConversationNotFound
 	case p.IsError && strings.Contains(explanation, "Not logged in"):
@@ -67,5 +87,6 @@ func (p resultPayload) ToVo(credential Credential) query.OutcomeVo {
 		SessionID:   p.SessionID,
 		Cost:        p.cost,
 		Explanation: credential.Redact(explanation),
+		ResetsAt:    resetsAt,
 	}
 }

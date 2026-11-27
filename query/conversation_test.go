@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -25,10 +26,14 @@ func TestUseCase_Open(t *testing.T) {
 		proxy := new(mockQueryProxy)
 		proxy.On("Open", mock.Anything, QueryVo{
 			MaxTurns: 4, Model: "haiku", WorkingDirectory: "/repo", AllowedTools: []string{"Read"}, SessionID: "session-1",
+			MCPConfigurationPaths: []string{"reviewer.json"}, StrictMCPConfiguration: true,
+			DisallowedTools: []string{"Edit"}, AppendSystemPrompt: "You are the reviewer.",
 		}).Return(link, nil)
 
 		conversation, err := NewUseCase(proxy).Open(context.Background(), ConversationRequest{
 			MaxTurns: 4, Model: "haiku", WorkingDirectory: "/repo", AllowedTools: []string{"Read"}, SessionID: "session-1",
+			MCPConfigurationPaths: []string{"reviewer.json"}, StrictMCPConfiguration: true,
+			DisallowedTools: []string{"Edit"}, AppendSystemPrompt: "You are the reviewer.",
 		})
 
 		require.NoError(t, err)
@@ -46,6 +51,16 @@ func TestUseCase_Open(t *testing.T) {
 		assert.Equal(t, "the round limit cannot be negative", err.Error())
 		assert.Nil(t, conversation)
 		proxy.AssertNotCalled(t, "Open", mock.Anything, mock.Anything)
+	})
+
+	t.Run("an outside-service list that does not exist is refused", func(t *testing.T) {
+		proxy := new(mockQueryProxy)
+		proxy.On("Open", mock.Anything, QueryVo{MCPConfigurationPaths: []string{"missing.json"}}).Return(nil, ErrInvalidMCPConfiguration)
+
+		conversation, err := NewUseCase(proxy).Open(context.Background(), ConversationRequest{MCPConfigurationPaths: []string{"missing.json"}})
+
+		require.ErrorIs(t, err, ErrInvalidMCPConfiguration)
+		assert.Nil(t, conversation)
 	})
 
 	t.Run("a work folder that does not exist is refused", func(t *testing.T) {
@@ -365,4 +380,29 @@ func TestCostVo_Since(t *testing.T) {
 			assert.Equal(t, tt.expected, cost(t, tt.total).Since(cost(t, tt.previous)).String())
 		})
 	}
+}
+
+func TestConversation_UsageLimitKeepsTheConversationOpen(t *testing.T) {
+	resetsAt := time.Date(2026, time.November, 27, 15, 0, 0, 0, time.UTC)
+	link := new(mockConversationLink)
+	link.On("Send", mock.Anything, "hi").Return(OutcomeVo{
+		Kind: OutcomeUsageLimitReached, ResetsAt: resetsAt, SessionID: "session-8", Cost: cost(t, "0.01"),
+	}, nil).Once()
+	link.On("Send", mock.Anything, "hello").Return(OutcomeVo{Kind: OutcomeFinished, Text: "hello", Cost: cost(t, "0.03")}, nil).Once()
+	conversation := openConversation(t, link, ConversationRequest{})
+
+	_, err := conversation.Send(context.Background(), "hi")
+
+	require.ErrorIs(t, err, ErrUsageLimitReached)
+	var limit *UsageLimitError
+	require.ErrorAs(t, err, &limit)
+	assert.Equal(t, resetsAt, limit.ResetsAt)
+	assert.Equal(t, "session-8", limit.SessionID)
+	assert.Equal(t, "0.01", limit.CostUSD)
+	assert.Equal(t, "session-8", conversation.SessionID())
+
+	reply, err := conversation.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", reply.Text)
+	assert.Equal(t, "0.02", reply.CostUSD)
 }

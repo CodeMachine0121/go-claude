@@ -19,6 +19,22 @@ type Request struct {
 	AllowedTools []string
 	// SessionID continues an earlier conversation; empty starts a new one.
 	SessionID string
+	// MCPConfigurationPaths lists files describing the MCP servers (outside
+	// services) Claude may connect to. A relative path is found from
+	// WorkingDirectory. Every file must exist; one Claude Code cannot read fails
+	// with ErrInvalidMCPConfiguration.
+	MCPConfigurationPaths []string
+	// StrictMCPConfiguration makes Claude use only the MCP servers of
+	// MCPConfigurationPaths, ignoring every other MCP configuration the person has.
+	StrictMCPConfiguration bool
+	// DisallowedTools lists the tools Claude must never use, such as "Edit" or
+	// "Bash(git push:*)", even when they would otherwise be allowed.
+	DisallowedTools []string
+	// AppendSystemPrompt is added after Claude Code's own system prompt, such as
+	// the role of an agent. Claude Code records the system prompt when a
+	// conversation begins: a request continuing a conversation (SessionID) keeps
+	// the text the conversation began with.
+	AppendSystemPrompt string
 }
 
 // ResultDto is Claude's final reply.

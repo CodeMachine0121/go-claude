@@ -3,7 +3,7 @@
 **Project:** go-claude
 **Bounded Context:** Using Claude from Go programs through the locally installed Claude Code
 **Maintainer:** CodeMachine0121
-**Last Updated:** 2026-11-26 (one-shot request added)
+**Last Updated:** 2026-11-27 (agent-team request options added)
 
 ---
 
@@ -39,6 +39,12 @@
 | Message | `query.Conversation.Send` argument | message | One thing the developer says in a conversation; must not be empty. | Confirmed |
 | Interrupt | `query.Conversation.Interrupt` | interrupt | Abandon the reply Claude is writing; the conversation continues. Does nothing when Claude is idle. | Confirmed |
 | Total cost | `query.Conversation.TotalCostUSD` | total cost | What the conversation has cost so far; each reply's cost is the increase it caused. | Confirmed |
+| Usage limit | `query.ErrUsageLimitReached` / `query.UsageLimitError` | usage limit reached | The subscription's usage is used up (session, weekly or per-model limit, or a spend cap); requests are refused until it resets. Distinct from every other problem. | Confirmed |
+| Usage reset | `query.UsageLimitError.ResetsAt` | resets at | When the used-up usage comes back, as Claude Code states it; unknown when Claude Code does not state it. | Confirmed |
+| Outside-service list | `query.Request.MCPConfigurationPaths` | MCP config | A written list (file) of outside services (MCP servers) Claude may connect to. Found from the work folder when not given in full. Must exist and be readable. | Confirmed |
+| Only listed outside services | `query.Request.StrictMCPConfiguration` | strict MCP config | Claude uses only the outside services of the given lists, ignoring the ones the person set up for themselves. | Confirmed |
+| Forbidden action | `query.Request.DisallowedTools` | disallowed tools | A kind of action Claude must never take, even when otherwise allowed. | Confirmed |
+| Role instructions | `query.Request.AppendSystemPrompt` | append system prompt | Instructions added after Claude Code's own standing instructions. A continued conversation keeps the instructions it began with. | Confirmed |
 | Credential | `claudecode.Credential` | — | Either a subscription pass or a developer account key; at most one may be supplied. | Confirmed |
 
 ---
@@ -90,4 +96,6 @@
 | Request outcome | `error_max_turns` | Round limit reached | Stopped at the round limit before finishing |
 | Request outcome | `is_error` with explanation | Claude reported a problem | e.g. "Not logged in · Please run /login", unavailable model |
 | Request outcome | `error_during_execution` + `aborted_streaming` | Interrupted | The reply was abandoned by an interrupt |
+| Request outcome | `is_error` + `api_error: usage_limit_reached` | Usage limit reached | Refused by the subscription's usage limit; the reset time (`resetsAt`, unix seconds) is stated only in the answer stream (`rate_limit_event` / `api_error_params.rate_limit_info`) |
+| Outside services (Claude Code start) | `Invalid MCP configuration` | Invalid outside-service list | A list Claude Code cannot find or read; Claude Code stops before any request |
 | Conversation control (Claude Code) | `control_request` / `interrupt` | Interrupt request | Asks Claude Code to abandon the reply being written |

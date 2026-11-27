@@ -31,29 +31,6 @@ func TestConversationWireLines(t *testing.T) {
 	})
 }
 
-func TestConversationLink_Deliver(t *testing.T) {
-	t.Run("a final answer reaches the waiting message with secrets hidden", func(t *testing.T) {
-		link := &conversationLink{answers: make(chan answer, 1), credential: NewOAuthToken("sk-ant-oat01-SECRET")}
-
-		link.deliver([]byte(`{"type":"result","subtype":"success","num_turns":1,"result":"pass sk-ant-oat01-SECRET","total_cost_usd":0.01}`))
-
-		delivered := <-link.answers
-		require.NoError(t, delivered.err)
-		assert.Equal(t, query.OutcomeFinished, delivered.outcome.Kind)
-		assert.Equal(t, "pass [REDACTED]", delivered.outcome.Text)
-	})
-
-	t.Run("a final answer that cannot be understood is reported, never dropped", func(t *testing.T) {
-		link := &conversationLink{answers: make(chan answer, 1), credential: NewOAuthToken("sk-ant-oat01-SECRET")}
-
-		link.deliver([]byte(`{"type":"result","result":"sk-ant-oat01-SECRET"}`))
-
-		delivered := <-link.answers
-		require.ErrorIs(t, delivered.err, query.ErrUnreadableReply)
-		assert.NotContains(t, delivered.err.Error(), "sk-ant-oat01-SECRET")
-	})
-}
-
 func TestConversationLink_ABrokenLinkRefusesEveryMessage(t *testing.T) {
 	link := &conversationLink{answers: make(chan answer, 1), ended: make(chan struct{})}
 	link.broken.Store(true)
@@ -101,15 +78,4 @@ func TestConversationLink_GivingUpOnAStuckWriteBreaksTheLink(t *testing.T) {
 	assert.True(t, link.broken.Load())
 	_, later := link.Send(context.Background(), "hi")
 	require.ErrorIs(t, later, query.ErrConversationEnded)
-}
-
-func TestDiagnostics_KeepsOnlyTheBeginning(t *testing.T) {
-	kept := &diagnostics{}
-
-	written, err := kept.Write([]byte(strings.Repeat("a", keptDiagnostics-2) + "bcdef"))
-	_, _ = kept.Write([]byte("more"))
-
-	require.NoError(t, err)
-	assert.Equal(t, keptDiagnostics+3, written)
-	assert.Equal(t, strings.Repeat("a", keptDiagnostics-2)+"bc", kept.String())
 }

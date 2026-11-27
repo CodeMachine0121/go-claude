@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -105,35 +106,41 @@ func (p *ClaudeCodeProxy) SignOut(ctx context.Context) error {
 // so requests of any length work on every platform. The final answer decides
 // the outcome, whatever Claude Code's exit status.
 func (p *ClaudeCodeProxy) Ask(ctx context.Context, request query.QueryVo) (query.OutcomeVo, error) {
+	command := queryCommand{query: request}
+	printed := &diagnostics{}
+	final, answered := answer{}, false
 	ask := invocation{
-		arguments: queryCommand{query: request}.arguments(),
+		arguments: command.arguments(),
 		input:     request.Prompt,
 		directory: request.WorkingDirectory,
+		output: newAnswerStream(p.settings.Credential, printed, func(last answer) {
+			final, answered = last, true
+		}),
 	}
-	if err := ask.checkDirectory(); err != nil {
+	if err := command.check(); err != nil {
 		return query.OutcomeVo{}, err
 	}
 	run, err := p.execute(ctx, ask)
 	if err != nil {
 		return query.OutcomeVo{}, err
 	}
-	payload, err := newResultPayload([]byte(run.output))
-	if err != nil && strings.Contains(run.said(), "No conversation found") {
-		return query.OutcomeVo{}, fmt.Errorf("%w: %q", query.ErrConversationNotFound, request.SessionID)
+	if answered {
+		return final.outcome, final.err
 	}
-	if err != nil {
-		return query.OutcomeVo{}, &query.UnreadableReplyError{Output: run.said()}
+	said := strings.TrimSpace(printed.Said(p.settings.Credential) + "\n" + run.said())
+	if failure := (plainAnswer{text: said}).KnownFailure(); failure != nil {
+		return query.OutcomeVo{}, failure
 	}
-	return payload.ToVo(p.settings.Credential), nil
+	return query.OutcomeVo{}, &query.UnreadableReplyError{Output: said}
 }
 
 // Open starts a conversation: one Claude Code process that answers messages
 // until it is closed. The conversation outlives ctx, which only bounds starting.
 func (p *ClaudeCodeProxy) Open(ctx context.Context, request query.QueryVo) (query.IConversationLink, error) {
-	open := invocation{arguments: conversationCommand{query: request}.arguments(), directory: request.WorkingDirectory}
-	if err := open.checkDirectory(); err != nil {
+	if err := (queryCommand{query: request}).check(); err != nil {
 		return nil, err
 	}
+	open := invocation{arguments: conversationCommand{query: request}.arguments(), directory: request.WorkingDirectory}
 	lifetime, stop := context.WithCancel(context.WithoutCancel(ctx))
 	command, err := p.command(lifetime, open)
 	if err != nil {
@@ -157,17 +164,10 @@ type invocation struct {
 	input string
 	// directory is the folder Claude Code runs in; empty means the current one.
 	directory string
-}
-
-// checkDirectory refuses a work folder that does not exist before anything runs.
-func (run invocation) checkDirectory() error {
-	if run.directory == "" {
-		return nil
-	}
-	if info, err := os.Stat(run.directory); err != nil || !info.IsDir() {
-		return fmt.Errorf("%w: %q", query.ErrWorkFolderMissing, run.directory)
-	}
-	return nil
+	// output receives Claude Code's standard output as it is written instead
+	// of keeping it; execution.output is then empty. Supplied secrets are not
+	// hidden from it.
+	output io.Writer
 }
 
 // execute runs Claude Code once. It fails only when the run could not happen or
@@ -184,6 +184,9 @@ func (p *ClaudeCodeProxy) execute(ctx context.Context, run invocation) (executio
 		command.Stdin, command.Stdout, command.Stderr = p.settings.Stdin, p.settings.Stdout, p.settings.Stderr
 	} else {
 		command.Stdin, command.Stdout, command.Stderr = strings.NewReader(run.input), &stdout, &stderr
+	}
+	if run.output != nil && !run.terminal {
+		command.Stdout = run.output
 	}
 
 	runErr := command.Run()

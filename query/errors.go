@@ -3,6 +3,7 @@ package query
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrEmptyRequest reports a request with nothing but spaces or line breaks.
@@ -32,6 +33,15 @@ var ErrRoundLimitReached = errors.New("round limit reached")
 // ErrClaudeReportedProblem reports a problem Claude explained, such as an
 // unavailable model. The concrete error is a *ProblemError.
 var ErrClaudeReportedProblem = errors.New("claude reported a problem")
+
+// ErrUsageLimitReached reports that the subscription's usage limit refused the
+// request: a session, weekly or per-model limit, or a spend cap. Retrying before
+// the limit resets fails the same way. The concrete error is a *UsageLimitError.
+var ErrUsageLimitReached = errors.New("usage limit reached")
+
+// ErrInvalidMCPConfiguration reports an MCP configuration file that does not
+// exist or that Claude Code cannot read.
+var ErrInvalidMCPConfiguration = errors.New("invalid MCP configuration")
 
 // ErrInterrupted reports a reply abandoned by Conversation.Interrupt.
 var ErrInterrupted = errors.New("interrupted")
@@ -68,6 +78,33 @@ func (e *RoundLimitError) Error() string {
 // Unwrap returns ErrRoundLimitReached.
 func (e *RoundLimitError) Unwrap() error {
 	return ErrRoundLimitReached
+}
+
+// UsageLimitError carries what is known when the usage limit refused the
+// request. ResetsAt is when the limit resets, as Claude Code stated it; it is
+// zero when Claude Code did not state it. Continue the conversation after the
+// reset with Request.SessionID set to SessionID.
+type UsageLimitError struct {
+	ResetsAt time.Time
+	// Explanation is what Claude Code said, with handed-over secrets hidden.
+	Explanation     string
+	Turns           int
+	CostUSD         string
+	CostNanodollars int64
+	SessionID       string
+}
+
+// Error reports the reset moment when it is known.
+func (e *UsageLimitError) Error() string {
+	if e.ResetsAt.IsZero() {
+		return ErrUsageLimitReached.Error()
+	}
+	return fmt.Sprintf("%s, resets at %s", ErrUsageLimitReached, e.ResetsAt.UTC().Format(time.RFC3339))
+}
+
+// Unwrap returns ErrUsageLimitReached.
+func (e *UsageLimitError) Unwrap() error {
+	return ErrUsageLimitReached
 }
 
 // ProblemError carries Claude's explanation, with handed-over secrets hidden.
